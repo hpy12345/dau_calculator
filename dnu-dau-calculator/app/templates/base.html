@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}DNU-DAU 数据看板{% endblock %}</title>
+    <!-- 全局样式 -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <!-- Chart.js 4.x CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+    <!-- SheetJS (XLSX) CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    {% block head_extra %}{% endblock %}
+</head>
+<body>
+    <!-- 全局顶部品牌栏 -->
+    <header class="app-header">
+        <div class="app-header__brand">
+            <a href="{{ url_for('main.index') }}" class="app-header__logo">📊 DNU-DAU 数据看板</a>
+        </div>
+        <div class="app-header__actions">
+            {% block header_actions %}{% endblock %}
+        </div>
+    </header>
+
+    <!-- 主内容区域 -->
+    <main class="app-main">
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- 页脚 -->
+    <footer class="app-footer">
+        <p>DNU-DAU Calculator &copy; 2025 | Powered by Flask + NumPy + Chart.js</p>
+    </footer>
+
+    <!-- 全局命名空间 JS -->
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

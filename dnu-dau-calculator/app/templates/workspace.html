@@ -1,0 +1,219 @@
+{% extends "base.html" %}
+
+{% block title %}{{ project.project_name }} - 工作区{% endblock %}
+
+{% block header_actions %}
+<button class="btn btn-primary btn-sm" id="saveProjectBtn" onclick="IAA.workspace.saveProject()">
+    💾 保存项目
+</button>
+{% endblock %}
+
+{% block content %}
+<!-- 隐藏字段：存储项目基础信息，供 JS 读取 -->
+<input type="hidden" id="projectId" value="{{ project.project_id }}">
+<input type="hidden" id="projectName" value="{{ project.project_name }}">
+
+<!-- 工作区项目信息栏 -->
+<div class="workspace-info">
+    <h1 class="workspace-info__name">📋 {{ project.project_name }}</h1>
+    <a href="{{ url_for('main.index') }}" class="btn btn-secondary btn-sm">← 返回首页</a>
+</div>
+
+<!-- ==================== 标签栏 (Tabs) ==================== -->
+<div class="tabs-bar" id="tabsBar">
+    {# 由 Jinja2 服务端直出已有标签，后续新增标签由 JS 动态生成 #}
+    {% for tab in project.tabs %}
+    <div class="tab-item {% if loop.first %}active{% endif %}"
+         data-tab-index="{{ loop.index0 }}"
+         onclick="IAA.workspace.switchTab({{ loop.index0 }})">
+        <span class="tab-item__label">{{ tab.tab_name }}</span>
+        {% if not loop.first %}
+        <button class="tab-item__close" title="删除标签"
+                onclick="event.stopPropagation(); IAA.workspace.removeTab({{ loop.index0 }})">✕</button>
+        {% endif %}
+    </div>
+    {% endfor %}
+    <!-- 添加标签按钮 -->
+    <button class="tab-add-btn" id="addTabBtn" title="添加新标签" onclick="IAA.workspace.showAddTabModal()">+</button>
+</div>
+
+<!-- ==================== 标签页内容面板 ==================== -->
+<div id="tabPanelsContainer">
+    {% for tab in project.tabs %}
+    <div class="tab-panel {% if loop.first %}active{% endif %}" data-panel-index="{{ loop.index0 }}">
+
+        <!-- DNU 数据输入区 -->
+        <div class="data-section">
+            <div class="data-section__title">
+                📈 DNU（日新增用户）数据
+                <span class="badge">天数-数值 对应</span>
+            </div>
+
+            <!-- Excel 上传区域 -->
+            <div class="upload-area">
+                <input type="file" accept=".xlsx,.xls,.csv" class="excel-upload-input"
+                       data-target="dnu" data-tab-index="{{ loop.index0 }}"
+                       onchange="IAA.excel.handleUpload(this, 'dnu', {{ loop.index0 }})"
+                       style="display:none" id="dnuFileInput_{{ loop.index0 }}">
+                <button class="btn btn-secondary btn-sm"
+                        onclick="document.getElementById('dnuFileInput_{{ loop.index0 }}').click()">
+                    📁 上传 Excel
+                </button>
+                <span class="upload-area__text">支持 .xlsx / .xls / .csv 格式，自动解析并填充</span>
+            </div>
+
+            <!-- DNU 数据表格 -->
+            <div class="data-table-wrapper">
+                <table class="data-table" id="dnuTable_{{ loop.index0 }}">
+                    <thead>
+                        <tr>
+                            <th>天数 (Day)</th>
+                            <th>DNU 数值</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% if tab.dnu_data %}
+                            {% for item in tab.dnu_data %}
+                            <tr>
+                                <td><input type="number" class="dnu-day" value="{{ item.day }}" min="1"></td>
+                                <td><input type="number" class="dnu-value" value="{{ item.value }}" min="0" step="1"></td>
+                                <td><button class="btn btn-danger btn-sm" onclick="IAA.workspace.removeRow(this)">删除</button></td>
+                            </tr>
+                            {% endfor %}
+                        {% else %}
+                            {# 默认提供5行空输入 #}
+                            {% for i in range(1, 6) %}
+                            <tr>
+                                <td><input type="number" class="dnu-day" value="{{ i }}" min="1"></td>
+                                <td><input type="number" class="dnu-value" value="" min="0" step="1" placeholder="输入DNU"></td>
+                                <td><button class="btn btn-danger btn-sm" onclick="IAA.workspace.removeRow(this)">删除</button></td>
+                            </tr>
+                            {% endfor %}
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+            <div class="data-table__actions">
+                <button class="btn btn-secondary btn-sm" onclick="IAA.workspace.addRow('dnu', {{ loop.index0 }})">
+                    ➕ 添加行
+                </button>
+                <button class="btn btn-secondary btn-sm" onclick="IAA.workspace.clearTable('dnu', {{ loop.index0 }})">
+                    🗑️ 清空
+                </button>
+            </div>
+        </div>
+
+        <!-- 留存率数据输入区 -->
+        <div class="data-section">
+            <div class="data-section__title">
+                📉 留存率数据
+                <span class="badge">天数-比率 对应</span>
+            </div>
+
+            <!-- Excel 上传区域 -->
+            <div class="upload-area">
+                <input type="file" accept=".xlsx,.xls,.csv" class="excel-upload-input"
+                       data-target="retention" data-tab-index="{{ loop.index0 }}"
+                       onchange="IAA.excel.handleUpload(this, 'retention', {{ loop.index0 }})"
+                       style="display:none" id="retFileInput_{{ loop.index0 }}">
+                <button class="btn btn-secondary btn-sm"
+                        onclick="document.getElementById('retFileInput_{{ loop.index0 }}').click()">
+                    📁 上传 Excel
+                </button>
+                <span class="upload-area__text">留存率为小数形式（如 0.45 表示 45%）</span>
+            </div>
+
+            <!-- 留存率数据表格 -->
+            <div class="data-table-wrapper">
+                <table class="data-table" id="retTable_{{ loop.index0 }}">
+                    <thead>
+                        <tr>
+                            <th>天数 (Day)</th>
+                            <th>留存率</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% if tab.retention_data %}
+                            {% for item in tab.retention_data %}
+                            <tr>
+                                <td><input type="number" class="ret-day" value="{{ item.day }}" min="1"></td>
+                                <td><input type="number" class="ret-value" value="{{ item.value }}" min="0" max="1" step="0.01"></td>
+                                <td><button class="btn btn-danger btn-sm" onclick="IAA.workspace.removeRow(this)">删除</button></td>
+                            </tr>
+                            {% endfor %}
+                        {% else %}
+                            {# 默认提供5行空输入 #}
+                            {% for i in range(1, 6) %}
+                            <tr>
+                                <td><input type="number" class="ret-day" value="{{ i }}" min="1"></td>
+                                <td><input type="number" class="ret-value" value="" min="0" max="1" step="0.01" placeholder="如 0.45"></td>
+                                <td><button class="btn btn-danger btn-sm" onclick="IAA.workspace.removeRow(this)">删除</button></td>
+                            </tr>
+                            {% endfor %}
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+            <div class="data-table__actions">
+                <button class="btn btn-secondary btn-sm" onclick="IAA.workspace.addRow('retention', {{ loop.index0 }})">
+                    ➕ 添加行
+                </button>
+                <button class="btn btn-secondary btn-sm" onclick="IAA.workspace.clearTable('retention', {{ loop.index0 }})">
+                    🗑️ 清空
+                </button>
+            </div>
+        </div>
+
+        <!-- 当前标签页图表区域 -->
+        <div class="charts-section" id="chartSection_{{ loop.index0 }}" style="display:none;">
+            <h3 class="charts-section__title">📊 {{ tab.tab_name }} - 分析结果</h3>
+            <div class="chart-container">
+                <div class="chart-container__header">DNU 与 DAU 对比曲线</div>
+                <canvas id="chartCanvas_{{ loop.index0 }}" height="300"></canvas>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<!-- ==================== 底部操作栏 ==================== -->
+<div class="action-bar">
+    <button class="btn-calculate" id="calculateBtn" onclick="IAA.workspace.calculate()">
+        🚀 开始计算
+    </button>
+</div>
+
+<!-- ==================== 全局汇总图表区域 ==================== -->
+<div class="charts-section" id="totalChartSection" style="display:none;">
+    <h3 class="charts-section__title">🌍 全局汇总分析</h3>
+    <div class="chart-container">
+        <div class="chart-container__header">所有标签页 DNU 累加总和 与 DAU 累加总和</div>
+        <canvas id="totalChartCanvas" height="300"></canvas>
+    </div>
+</div>
+
+<!-- ==================== 添加标签弹窗 ==================== -->
+<div class="modal-overlay" id="addTabModal">
+    <div class="modal-dialog">
+        <div class="modal-dialog__title">添加新标签页</div>
+        <div class="form-group">
+            <label for="newTabNameInput">标签名称（地区/渠道）</label>
+            <input type="text" class="form-input" id="newTabNameInput" placeholder="例如：欧洲、日韩..." maxlength="20">
+        </div>
+        <div class="modal-dialog__actions">
+            <button class="btn btn-secondary" onclick="IAA.utils.hideModal('#addTabModal')">取消</button>
+            <button class="btn btn-primary" onclick="IAA.workspace.addTab()">确认添加</button>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<!-- 工作区相关 JS 模块，按依赖顺序加载 -->
+<script src="{{ url_for('static', filename='js/excel_parser.js') }}"></script>
+<script src="{{ url_for('static', filename='js/chart_render.js') }}"></script>
+<script src="{{ url_for('static', filename='js/workspace.js') }}"></script>
+{% endblock %}
