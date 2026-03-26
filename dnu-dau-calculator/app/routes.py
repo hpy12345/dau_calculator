@@ -139,14 +139,15 @@ def api_calculate_dau():
     {
         "tab_name": "北美",
         "dnu_data": [{"day": 1, "value": 1500}, {"day": 2, "value": 1800}],
-        "retention_data": [{"day": 1, "value": 0.45}, {"day": 2, "value": 0.30}]
+        "retention_data": [{"day": 1, "value": 0.45}, {"day": 2, "value": 0.30}],
+        "total_days": 60  // 可选，总计算天数（含投资结束后的衰减期）
     }
     
     返回：
     {
         "success": true,
         "tab_name": "北美",
-        "dau_result": [{"day": 1, "value": 1500.0}, {"day": 2, "value": 2475.0}]
+        "dau_result": [{"day": 1, "value": 1500.0}, {"day": 2, "value": 2475.0}, ...]
     }
     """
     data = request.get_json(silent=True) or {}
@@ -154,12 +155,22 @@ def api_calculate_dau():
     dnu_data = data.get('dnu_data', [])
     retention_data = data.get('retention_data', [])
     tab_name = data.get('tab_name', '')
+    total_days = data.get('total_days', None)
+
+    # 如果传入了 total_days，确保为正整数
+    if total_days is not None:
+        try:
+            total_days = int(total_days)
+            if total_days <= 0:
+                total_days = None
+        except (ValueError, TypeError):
+            total_days = None
 
     if not dnu_data:
         return jsonify({'success': False, 'message': 'DNU 数据不能为空'}), 400
 
     try:
-        dau_result = calculator.calculate_dau(dnu_data, retention_data)
+        dau_result = calculator.calculate_dau(dnu_data, retention_data, total_days=total_days)
         return jsonify({
             'success': True,
             'tab_name': tab_name,

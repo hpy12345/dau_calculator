@@ -34,12 +34,13 @@
             <div class="project-card__meta">
                 <span>📅 创建: {{ p.created_at }}</span>
                 <span>🔄 更新: {{ p.updated_at }}</span>
-                <span>📑 标签页: {{ p.tab_count }}</span>
             </div>
-            <button class="project-card__delete" title="删除项目"
-                    onclick="event.stopPropagation(); deleteProject('{{ p.project_id }}', '{{ p.project_name }}')">
-                ✕
-            </button>
+            <div class="project-card__actions">
+                <button class="project-card__delete" title="删除项目"
+                        onclick="event.stopPropagation(); deleteProject('{{ p.project_id }}', '{{ p.project_name }}')">
+                    ✕
+                </button>
+            </div>
         </div>
         {% endfor %}
     </div>
@@ -130,18 +131,10 @@
         })
         .then(function () {
             utils.showToast('项目已删除', 'success');
-            // 移除对应的卡片 DOM
-            var card = document.querySelector('[data-id="' + projectId + '"]');
-            if (card) {
-                card.style.opacity = '0';
-                card.style.transform = 'scale(0.95)';
-                card.style.transition = 'all 0.3s ease';
-                setTimeout(function () {
-                    if (card.parentNode) {
-                        card.parentNode.removeChild(card);
-                    }
-                }, 300);
-            }
+            // 刷新页面以更新项目列表
+            setTimeout(function () {
+                window.location.reload();
+            }, 500);
         })
         .catch(function (err) {
             utils.showToast(err.message || '删除失败', 'error');

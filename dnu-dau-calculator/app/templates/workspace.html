@@ -13,6 +13,11 @@
 <input type="hidden" id="projectId" value="{{ project.project_id }}">
 <input type="hidden" id="projectName" value="{{ project.project_name }}">
 
+<!-- 将已保存的项目数据传递给 JS，用于统一的预览模式渲染 -->
+<script id="savedProjectData" type="application/json">
+    {{ project | tojson }}
+</script>
+
 <!-- 工作区项目信息栏 -->
 <div class="workspace-info">
     <h1 class="workspace-info__name">📋 {{ project.project_name }}</h1>
@@ -49,58 +54,70 @@
                 <span class="badge">天数-数值 对应</span>
             </div>
 
-            <!-- Excel 上传区域 -->
-            <div class="upload-area">
-                <input type="file" accept=".xlsx,.xls,.csv" class="excel-upload-input"
-                       data-target="dnu" data-tab-index="{{ loop.index0 }}"
-                       onchange="IAA.excel.handleUpload(this, 'dnu', {{ loop.index0 }})"
-                       style="display:none" id="dnuFileInput_{{ loop.index0 }}">
-                <button class="btn btn-secondary btn-sm"
-                        onclick="document.getElementById('dnuFileInput_{{ loop.index0 }}').click()">
-                    📁 上传 Excel
+            <!-- 数据录入模式切换 -->
+            <div class="input-mode-toggle" data-type="dnu" data-tab-index="{{ loop.index0 }}">
+                <button class="input-mode-btn active" data-mode="manual"
+                        onclick="IAA.workspace.switchInputMode('dnu', {{ loop.index0 }}, 'manual')">
+                    ✏️ 手动输入
                 </button>
-                <span class="upload-area__text">支持 .xlsx / .xls / .csv 格式，自动解析并填充</span>
+                <button class="input-mode-btn" data-mode="import"
+                        onclick="IAA.workspace.switchInputMode('dnu', {{ loop.index0 }}, 'import')">
+                    📁 Excel 导入
+                </button>
             </div>
 
-            <!-- DNU 数据表格 -->
-            <div class="data-table-wrapper">
-                <table class="data-table" id="dnuTable_{{ loop.index0 }}">
-                    <thead>
-                        <tr>
-                            <th>天数 (Day)</th>
-                            <th>DNU 数值</th>
-                            <th>操作</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% if tab.dnu_data %}
-                            {% for item in tab.dnu_data %}
+            <!-- 手动输入模式面板 -->
+            <div class="input-mode-panel input-mode-panel--manual active"
+                 id="dnuManualPanel_{{ loop.index0 }}">
+                <div class="data-table-wrapper">
+                    <table class="data-table" id="dnuTable_{{ loop.index0 }}">
+                        <thead>
                             <tr>
-                                <td><input type="number" class="dnu-day" value="{{ item.day }}" min="1"></td>
-                                <td><input type="number" class="dnu-value" value="{{ item.value }}" min="0" step="1"></td>
-                                <td><button class="btn btn-danger btn-sm" onclick="IAA.workspace.removeRow(this)">删除</button></td>
+                                <th>天数 (Day)</th>
+                                <th>DNU 数值</th>
+                                <th>操作</th>
                             </tr>
-                            {% endfor %}
-                        {% else %}
-                            {# 默认提供5行空输入 #}
-                            {% for i in range(1, 6) %}
-                            <tr>
-                                <td><input type="number" class="dnu-day" value="{{ i }}" min="1"></td>
-                                <td><input type="number" class="dnu-value" value="" min="0" step="1" placeholder="输入DNU"></td>
-                                <td><button class="btn btn-danger btn-sm" onclick="IAA.workspace.removeRow(this)">删除</button></td>
-                            </tr>
-                            {% endfor %}
-                        {% endif %}
-                    </tbody>
-                </table>
+                        </thead>
+                        <tbody>
+                            {# 始终渲染空的手动输入表格，已保存数据由 JS 统一处理 #}
+                            {% if not tab.dnu_data %}
+                                {% for i in range(1, 6) %}
+                                <tr>
+                                    <td><input type="number" class="dnu-day" value="{{ i }}" min="1"></td>
+                                    <td><input type="number" class="dnu-value" value="" min="0" step="1" placeholder="输入DNU"></td>
+                                    <td><button class="btn btn-danger btn-sm" onclick="IAA.workspace.removeRow(this)">删除</button></td>
+                                </tr>
+                                {% endfor %}
+                            {% endif %}
+                        </tbody>
+                    </table>
+                </div>
+                <div class="data-table__actions">
+                    <button class="btn btn-secondary btn-sm" onclick="IAA.workspace.addRow('dnu', {{ loop.index0 }})">
+                        ➕ 添加行
+                    </button>
+                    <button class="btn btn-secondary btn-sm" onclick="IAA.workspace.clearTable('dnu', {{ loop.index0 }})">
+                        🗑️ 清空
+                    </button>
+                </div>
             </div>
-            <div class="data-table__actions">
-                <button class="btn btn-secondary btn-sm" onclick="IAA.workspace.addRow('dnu', {{ loop.index0 }})">
-                    ➕ 添加行
-                </button>
-                <button class="btn btn-secondary btn-sm" onclick="IAA.workspace.clearTable('dnu', {{ loop.index0 }})">
-                    🗑️ 清空
-                </button>
+
+            <!-- Excel 导入模式面板 -->
+            <div class="input-mode-panel input-mode-panel--import"
+                 id="dnuImportPanel_{{ loop.index0 }}">
+                <div class="upload-area">
+                    <input type="file" accept=".xlsx,.xls,.csv" class="excel-upload-input"
+                           data-target="dnu" data-tab-index="{{ loop.index0 }}"
+                           onchange="IAA.excel.handleUpload(this, 'dnu', {{ loop.index0 }})"
+                           style="display:none" id="dnuFileInput_{{ loop.index0 }}">
+                    <button class="btn btn-secondary btn-sm"
+                            onclick="document.getElementById('dnuFileInput_{{ loop.index0 }}').click()">
+                        📁 选择文件上传
+                    </button>
+                    <span class="upload-area__text">支持 .xlsx / .xls / .csv 格式，自动解析并填充</span>
+                </div>
+                <!-- 导入数据预览区域（由 JS 动态填充） -->
+                <div class="import-preview-wrapper" id="dnuImportPreview_{{ loop.index0 }}"></div>
             </div>
         </div>
 
@@ -111,69 +128,73 @@
                 <span class="badge">天数-比率 对应</span>
             </div>
 
-            <!-- Excel 上传区域 -->
-            <div class="upload-area">
-                <input type="file" accept=".xlsx,.xls,.csv" class="excel-upload-input"
-                       data-target="retention" data-tab-index="{{ loop.index0 }}"
-                       onchange="IAA.excel.handleUpload(this, 'retention', {{ loop.index0 }})"
-                       style="display:none" id="retFileInput_{{ loop.index0 }}">
-                <button class="btn btn-secondary btn-sm"
-                        onclick="document.getElementById('retFileInput_{{ loop.index0 }}').click()">
-                    📁 上传 Excel
+            <!-- 数据录入模式切换 -->
+            <div class="input-mode-toggle" data-type="retention" data-tab-index="{{ loop.index0 }}">
+                <button class="input-mode-btn active" data-mode="manual"
+                        onclick="IAA.workspace.switchInputMode('retention', {{ loop.index0 }}, 'manual')">
+                    ✏️ 手动输入
                 </button>
-                <span class="upload-area__text">留存率为小数形式（如 0.45 表示 45%）</span>
+                <button class="input-mode-btn" data-mode="import"
+                        onclick="IAA.workspace.switchInputMode('retention', {{ loop.index0 }}, 'import')">
+                    📁 Excel 导入
+                </button>
             </div>
 
-            <!-- 留存率数据表格 -->
-            <div class="data-table-wrapper">
-                <table class="data-table" id="retTable_{{ loop.index0 }}">
-                    <thead>
-                        <tr>
-                            <th>天数 (Day)</th>
-                            <th>留存率</th>
-                            <th>操作</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% if tab.retention_data %}
-                            {% for item in tab.retention_data %}
+            <!-- 手动输入模式面板 -->
+            <div class="input-mode-panel input-mode-panel--manual active"
+                 id="retManualPanel_{{ loop.index0 }}">
+                <div class="data-table-wrapper">
+                    <table class="data-table" id="retTable_{{ loop.index0 }}">
+                        <thead>
                             <tr>
-                                <td><input type="number" class="ret-day" value="{{ item.day }}" min="1"></td>
-                                <td><input type="number" class="ret-value" value="{{ item.value }}" min="0" max="1" step="0.01"></td>
-                                <td><button class="btn btn-danger btn-sm" onclick="IAA.workspace.removeRow(this)">删除</button></td>
+                                <th>天数 (Day)</th>
+                                <th>留存率</th>
+                                <th>操作</th>
                             </tr>
-                            {% endfor %}
-                        {% else %}
-                            {# 默认提供5行空输入 #}
-                            {% for i in range(1, 6) %}
-                            <tr>
-                                <td><input type="number" class="ret-day" value="{{ i }}" min="1"></td>
-                                <td><input type="number" class="ret-value" value="" min="0" max="1" step="0.01" placeholder="如 0.45"></td>
-                                <td><button class="btn btn-danger btn-sm" onclick="IAA.workspace.removeRow(this)">删除</button></td>
-                            </tr>
-                            {% endfor %}
-                        {% endif %}
-                    </tbody>
-                </table>
+                        </thead>
+                        <tbody>
+                            {# 始终渲染空的手动输入表格，已保存数据由 JS 统一处理 #}
+                            {% if not tab.retention_data %}
+                                {% for i in range(1, 6) %}
+                                <tr>
+                                    <td><input type="number" class="ret-day" value="{{ i }}" min="1"></td>
+                                    <td><input type="number" class="ret-value" value="" min="0" max="1" step="0.01" placeholder="如 0.45"></td>
+                                    <td><button class="btn btn-danger btn-sm" onclick="IAA.workspace.removeRow(this)">删除</button></td>
+                                </tr>
+                                {% endfor %}
+                            {% endif %}
+                        </tbody>
+                    </table>
+                </div>
+                <div class="data-table__actions">
+                    <button class="btn btn-secondary btn-sm" onclick="IAA.workspace.addRow('retention', {{ loop.index0 }})">
+                        ➕ 添加行
+                    </button>
+                    <button class="btn btn-secondary btn-sm" onclick="IAA.workspace.clearTable('retention', {{ loop.index0 }})">
+                        🗑️ 清空
+                    </button>
+                </div>
             </div>
-            <div class="data-table__actions">
-                <button class="btn btn-secondary btn-sm" onclick="IAA.workspace.addRow('retention', {{ loop.index0 }})">
-                    ➕ 添加行
-                </button>
-                <button class="btn btn-secondary btn-sm" onclick="IAA.workspace.clearTable('retention', {{ loop.index0 }})">
-                    🗑️ 清空
-                </button>
+
+            <!-- Excel 导入模式面板 -->
+            <div class="input-mode-panel input-mode-panel--import"
+                 id="retImportPanel_{{ loop.index0 }}">
+                <div class="upload-area">
+                    <input type="file" accept=".xlsx,.xls,.csv" class="excel-upload-input"
+                           data-target="retention" data-tab-index="{{ loop.index0 }}"
+                           onchange="IAA.excel.handleUpload(this, 'retention', {{ loop.index0 }})"
+                           style="display:none" id="retFileInput_{{ loop.index0 }}">
+                    <button class="btn btn-secondary btn-sm"
+                            onclick="document.getElementById('retFileInput_{{ loop.index0 }}').click()">
+                        📁 选择文件上传
+                    </button>
+                    <span class="upload-area__text">留存率为小数形式（如 0.45 表示 45%）</span>
+                </div>
+                <!-- 导入数据预览区域（由 JS 动态填充） -->
+                <div class="import-preview-wrapper" id="retImportPreview_{{ loop.index0 }}"></div>
             </div>
         </div>
 
-        <!-- 当前标签页图表区域 -->
-        <div class="charts-section" id="chartSection_{{ loop.index0 }}" style="display:none;">
-            <h3 class="charts-section__title">📊 {{ tab.tab_name }} - 分析结果</h3>
-            <div class="chart-container">
-                <div class="chart-container__header">DNU 与 DAU 对比曲线</div>
-                <canvas id="chartCanvas_{{ loop.index0 }}" height="300"></canvas>
-            </div>
-        </div>
     </div>
     {% endfor %}
 </div>
@@ -185,12 +206,128 @@
     </button>
 </div>
 
-<!-- ==================== 全局汇总图表区域 ==================== -->
-<div class="charts-section" id="totalChartSection" style="display:none;">
-    <h3 class="charts-section__title">🌍 全局汇总分析</h3>
-    <div class="chart-container">
-        <div class="chart-container__header">所有标签页 DNU 累加总和 与 DAU 累加总和</div>
-        <canvas id="totalChartCanvas" height="300"></canvas>
+<!-- ==================== 分析结果区域 ==================== -->
+<div class="result-section" id="resultSection" style="display:none;">
+    <div class="result-section__title">
+        📊 分析结果
+    </div>
+
+    <!-- 分析结果标签栏 -->
+    <div class="result-tabs-bar" id="resultTabsBar">
+        {% for tab in project.tabs %}
+        <div class="result-tab-item {% if loop.first %}active{% endif %}"
+             data-result-tab-index="{{ loop.index0 }}"
+             onclick="IAA.workspace.switchResultTab({{ loop.index0 }})">
+            <span class="result-tab-item__label">{{ tab.tab_name }}</span>
+        </div>
+        {% endfor %}
+    </div>
+
+    <!-- 分析结果标签页内容面板 -->
+    <div class="result-panels-container" id="resultPanelsContainer">
+        {% for tab in project.tabs %}
+        <div class="result-tab-panel {% if loop.first %}active{% endif %}"
+             id="chartSection_{{ loop.index0 }}"
+             data-result-panel-index="{{ loop.index0 }}">
+            <div class="charts-dual-layout">
+                <!-- DNU 图表区域 -->
+                <div class="chart-container">
+                    <div class="chart-container__toolbar">
+                        <div class="chart-container__header">📈 DNU 曲线</div>
+                        <div class="data-view-toggle" role="group" aria-label="DNU 数据展示切换">
+                            <button type="button" class="btn btn-data-view active" data-view="chart"
+                                    onclick="IAA.chart.switchDataView('dnu',{{ loop.index0 }},'chart',this)">
+                                📈 图表展示
+                            </button>
+                            <button type="button" class="btn btn-data-view" data-view="list"
+                                    onclick="IAA.chart.switchDataView('dnu',{{ loop.index0 }},'list',this)">
+                                📋 列表展示
+                            </button>
+                        </div>
+                    </div>
+                    <!-- 数据表格（默认隐藏） -->
+                    <div id="dnuTableWrap_{{ loop.index0 }}" class="data-table-wrap" style="display: none;"></div>
+                    <!-- 图表容器 -->
+                    <div id="chartCanvasDnu_{{ loop.index0 }}Wrap" class="data-chart-wrap">
+                        <canvas id="chartCanvasDnu_{{ loop.index0 }}" height="300"></canvas>
+                    </div>
+                </div>
+                <!-- DAU 图表区域 -->
+                <div class="chart-container">
+                    <div class="chart-container__toolbar">
+                        <div class="chart-container__header">📊 DAU 曲线</div>
+                        <div class="data-view-toggle" role="group" aria-label="DAU 数据展示切换">
+                            <button type="button" class="btn btn-data-view active" data-view="chart"
+                                    onclick="IAA.chart.switchDataView('dau',{{ loop.index0 }},'chart',this)">
+                                📈 图表展示
+                            </button>
+                            <button type="button" class="btn btn-data-view" data-view="list"
+                                    onclick="IAA.chart.switchDataView('dau',{{ loop.index0 }},'list',this)">
+                                📋 列表展示
+                            </button>
+                        </div>
+                    </div>
+                    <!-- 数据表格（默认隐藏） -->
+                    <div id="dauTableWrap_{{ loop.index0 }}" class="data-table-wrap" style="display: none;"></div>
+                    <!-- 图表容器 -->
+                    <div id="chartCanvasDau_{{ loop.index0 }}Wrap" class="data-chart-wrap">
+                        <canvas id="chartCanvasDau_{{ loop.index0 }}" height="300"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<!-- ==================== 全局汇总区域（独立容器） ==================== -->
+<div class="total-section" id="totalSection" style="display:none;">
+    <div class="total-section__title">
+        🌍 汇总结果
+    </div>
+    <div class="total-section__body">
+        <div class="charts-dual-layout">
+            <!-- 汇总 DNU 图表区域 -->
+            <div class="chart-container">
+                <div class="chart-container__toolbar">
+                    <div class="chart-container__header">📈 DNU 汇总</div>
+                    <div class="data-view-toggle" role="group" aria-label="汇总 DNU 数据展示切换">
+                        <button type="button" class="btn btn-data-view active" data-view="chart"
+                                onclick="IAA.chart.switchDataView('totalDnu','total','chart',this)">
+                            📈 图表展示
+                        </button>
+                        <button type="button" class="btn btn-data-view" data-view="list"
+                                onclick="IAA.chart.switchDataView('totalDnu','total','list',this)">
+                            📋 列表展示
+                        </button>
+                    </div>
+                </div>
+                <div id="totalDnuTableWrap_total" class="data-table-wrap" style="display: none;"></div>
+                <div id="totalChartCanvasDnuWrap" class="data-chart-wrap">
+                    <canvas id="totalChartCanvasDnu" height="300"></canvas>
+                </div>
+            </div>
+            <!-- 汇总 DAU 图表区域 -->
+            <div class="chart-container">
+                <div class="chart-container__toolbar">
+                    <div class="chart-container__header">📊 DAU 汇总</div>
+                    <div class="data-view-toggle" role="group" aria-label="汇总 DAU 数据展示切换">
+                        <button type="button" class="btn btn-data-view active" data-view="chart"
+                                onclick="IAA.chart.switchDataView('totalDau','total','chart',this)">
+                            📈 图表展示
+                        </button>
+                        <button type="button" class="btn btn-data-view" data-view="list"
+                                onclick="IAA.chart.switchDataView('totalDau','total','list',this)">
+                            📋 列表展示
+                        </button>
+                    </div>
+                </div>
+                <div id="totalDauTableWrap_total" class="data-table-wrap" style="display: none;"></div>
+                <div id="totalChartCanvasDauWrap" class="data-chart-wrap">
+                    <canvas id="totalChartCanvasDau" height="300"></canvas>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
 

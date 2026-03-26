@@ -9,10 +9,11 @@
  *
  * Excel 文件格式约定：
  *   第一列为"天数"（Day），第二列为"数值"（Value）
- *   第一行为表头（自动跳过），从第二行开始读取数据
+ *   支持有表头和无表头两种格式（自动智能检测）
+ *   留存率数据支持小数（0.45）、百分比字符串（"45%"）、纯数字百分比（45.00）三种格式
  *   示例：
- *     | Day | Value |
- *     |  1  | 1500  |
+ *     | Day | Value |     或直接：  |  1  | 1500  |
+ *     |  1  | 1500  |               |  2  | 1800  |
  *     |  2  | 1800  |
  */
 
@@ -102,10 +103,14 @@
      * 解析 SheetJS 返回的原始二维数组为 "天数-数据" 对象数组
      *
      * 解析策略：
-     *   1. 跳过第一行（表头）
-     *   2. 每行取前两列：第一列为天数，第二列为数值
-     *   3. 自动识别：如果第一列不是数字，尝试用行号作为天数
-     *   4. 对于留存率数据，如果数值大于1则自动除以100（兼容百分比格式）
+     *   1. 智能检测第一行是否为表头（而非无条件跳过）
+     *   2. 自动识别第一个包含数字数据的列作为起始读取位置
+     *   3. 智能识别数据格式：
+     *      - 百分比形式（如 "15%"）自动转换为小数形式（0.15）
+     *      - 纯数字百分比（如 100.00、45.50，值>1）自动除以100归一化
+     *      - 小数形式数据（0~1之间）保持原样
+     *      - 所有数据统一转换为标准小数格式
+     *   4. 自动识别：如果第一列不是数字，尝试用行号作为天数
      *
      * @param {Array<Array>} rawData - SheetJS 解析的二维数组
      * @param {string} type - 'dnu' 或 'retention'
@@ -114,17 +119,32 @@
     function _parseRawData(rawData, type) {
         var result = [];
 
-        if (!rawData || rawData.length < 2) {
+        if (!rawData || rawData.length < 1) {
             return result;
         }
 
-        // 从第二行开始（跳过表头）
-        for (var i = 1; i < rawData.length; i++) {
-            var row = rawData[i];
-            if (!row || row.length < 2) continue;
+        // 自动识别第一个包含数字数据的列作为起始读取位置
+        var dataStartCol = _findDataStartCol(rawData);
+        if (dataStartCol < 0) {
+            return result;
+        }
 
-            var dayRaw = row[0];
-            var valueRaw = row[1];
+        // 智能检测第一行是否为表头
+        var startRow = _detectHeaderRow(rawData, dataStartCol);
+
+        // 从检测到的数据起始行开始
+        for (var i = startRow; i < rawData.length; i++) {
+            var row = rawData[i];
+            if (!row || row.length <= dataStartCol) continue;
+
+            var dayRaw = row[dataStartCol];
+            var valueRaw = row[dataStartCol + 1];
+
+            // 如果只有一列数字数据，则用行号作为天数，该列作为数值
+            if (dataStartCol + 1 >= row.length || valueRaw === undefined || valueRaw === null || valueRaw === '') {
+                valueRaw = dayRaw;
+                dayRaw = i;
+            }
 
             // 解析天数
             var day = parseInt(dayRaw, 10);
@@ -133,14 +153,9 @@
                 day = i;
             }
 
-            // 解析数值
-            var value = parseFloat(valueRaw);
+            // 智能解析数值（支持百分比和小数格式）
+            var value = _parseNumericValue(valueRaw);
             if (isNaN(value)) continue;
-
-            // 留存率数据兼容处理：如果值大于1，认为是百分比形式，自动转换
-            if (type === 'retention' && value > 1) {
-                value = value / 100;
-            }
 
             result.push({
                 day: day,
@@ -148,7 +163,200 @@
             });
         }
 
+        // 对留存率数据进行自动归一化处理
+        if (type === 'retention') {
+            result = _normalizeRetentionData(result);
+        }
+
         return result;
+    }
+
+    /**
+     * 智能检测第一行是否为表头
+     *
+     * 检测策略：
+     *   1. 如果第一行为空或只有一个单元格，视为表头（跳过）
+     *   2. 检查第一行数据列的单元格是否为纯数字
+     *      - 如果数据列的值是有效数字 → 第一行是数据行，从第0行开始
+     *      - 如果数据列的值不是数字（如 "Day"、"DNU"） → 第一行是表头，从第1行开始
+     *   3. 额外检查：如果第一行包含常见表头关键词（中英文），直接判定为表头
+     *
+     * @param {Array<Array>} rawData - SheetJS 解析的二维数组
+     * @param {number} dataStartCol - 数据起始列索引
+     * @returns {number} 数据起始行索引（0 或 1）
+     */
+    function _detectHeaderRow(rawData, dataStartCol) {
+        if (!rawData || rawData.length === 0) return 0;
+
+        var firstRow = rawData[0];
+        if (!firstRow || firstRow.length === 0) return 1; // 空行，跳过
+
+        // 常见表头关键词（中英文）
+        var headerKeywords = [
+            'day', 'days', '天数', '天', '日期', 'date',
+            'dnu', 'dau', 'value', '数值', '值', '新增', '用户',
+            'retention', '留存', '留存率', 'rate', '比率', '百分比',
+            'no', 'number', '序号', '编号', 'id', 'index'
+        ];
+
+        // 检查第一行所有单元格是否包含表头关键词
+        for (var col = 0; col < firstRow.length; col++) {
+            var cellValue = firstRow[col];
+            if (cellValue === undefined || cellValue === null) continue;
+
+            var cellStr = String(cellValue).trim().toLowerCase();
+            for (var k = 0; k < headerKeywords.length; k++) {
+                if (cellStr === headerKeywords[k] || cellStr.indexOf(headerKeywords[k]) !== -1) {
+                    return 1; // 包含表头关键词，从第二行开始
+                }
+            }
+        }
+
+        // 检查数据列的第一行单元格是否为有效数字
+        var dataColValue = firstRow[dataStartCol];
+        var valueColValue = (dataStartCol + 1 < firstRow.length) ? firstRow[dataStartCol + 1] : undefined;
+
+        // 如果数据列的值是有效数字，则第一行是数据行
+        var dataColIsNumeric = (dataColValue !== undefined && dataColValue !== null && !isNaN(_parseNumericValue(dataColValue)));
+        var valueColIsNumeric = (valueColValue !== undefined && valueColValue !== null && !isNaN(_parseNumericValue(valueColValue)));
+
+        // 两列都是数字 → 第一行是数据行
+        if (dataColIsNumeric && valueColIsNumeric) {
+            return 0;
+        }
+
+        // 只有一列是数字（可能只有一列数据）→ 也视为数据行
+        if (dataColIsNumeric && (valueColValue === undefined || valueColValue === null)) {
+            return 0;
+        }
+
+        // 默认跳过第一行（视为表头）
+        return 1;
+    }
+
+    /**
+     * 留存率数据自动归一化
+     *
+     * 智能识别留存率数据的格式并统一转换为 0~1 的小数形式：
+     *   - 如果大部分数据值 > 1（如 100.00, 45.50），判定为百分比数值，自动除以 100
+     *   - 如果大部分数据值在 0~1 之间（如 0.45, 1.00），保持原样
+     *   - 带 % 后缀的数据已在 _parseNumericValue 中处理，此处不重复处理
+     *
+     * 判定阈值：如果超过 50% 的数据值 > 1，则认为整列是百分比数值
+     *
+     * @param {Array<Object>} data - [{day: 1, value: 100.00}, ...]
+     * @returns {Array<Object>} 归一化后的数据
+     */
+    function _normalizeRetentionData(data) {
+        if (!data || data.length === 0) return data;
+
+        // 统计值 > 1 的数据条数
+        var greaterThanOneCount = 0;
+        for (var i = 0; i < data.length; i++) {
+            if (data[i].value > 1) {
+                greaterThanOneCount++;
+            }
+        }
+
+        // 如果超过 50% 的数据值 > 1，判定为百分比数值，需要除以 100
+        if (greaterThanOneCount > data.length / 2) {
+            for (var j = 0; j < data.length; j++) {
+                data[j].value = Math.round((data[j].value / 100) * 10000) / 10000;
+            }
+        }
+
+        return data;
+    }
+
+    /**
+     * 自动识别第一个包含数字数据的列索引
+     * 
+     * 扫描策略：
+     *   从所有行（包括第一行）开始，逐列检查是否包含数字数据。
+     *   如果某列中超过半数的行包含有效数字（含百分比格式），
+     *   则认为该列是第一个数据列。
+     *   注意：此函数不跳过表头行，因为表头检测由 _detectHeaderRow 负责。
+     *
+     * @param {Array<Array>} rawData - SheetJS 解析的二维数组
+     * @returns {number} 第一个数字数据列的索引，未找到返回 -1
+     */
+    function _findDataStartCol(rawData) {
+        if (!rawData || rawData.length < 1) return -1;
+
+        // 获取最大列数
+        var maxCols = 0;
+        for (var r = 0; r < rawData.length; r++) {
+            if (rawData[r] && rawData[r].length > maxCols) {
+                maxCols = rawData[r].length;
+            }
+        }
+
+        // 逐列扫描，找到第一个包含数字数据的列
+        for (var col = 0; col < maxCols; col++) {
+            var numericCount = 0;
+            var totalCount = 0;
+
+            // 从所有行开始检查（包括第一行，表头检测由 _detectHeaderRow 负责）
+            for (var row = 0; row < rawData.length; row++) {
+                if (!rawData[row] || col >= rawData[row].length) continue;
+
+                var cellValue = rawData[row][col];
+                if (cellValue === undefined || cellValue === null || cellValue === '') continue;
+
+                totalCount++;
+
+                // 检查是否为数字（包括百分比格式）
+                if (!isNaN(_parseNumericValue(cellValue))) {
+                    numericCount++;
+                }
+            }
+
+            // 如果该列超过半数的有效行包含数字数据，认为是数据起始列
+            if (totalCount > 0 && numericCount > totalCount / 2) {
+                return col;
+            }
+        }
+
+        return -1;
+    }
+
+    /**
+     * 智能解析数值，支持多种格式
+     * 
+     * 支持的格式：
+     *   - 纯数字：1500, 0.45
+     *   - 百分比字符串："15%", "45.5%" → 自动转换为小数 0.15, 0.455
+     *   - 带空格的数字：" 1500 "
+     *   - 已经是数字类型的值直接返回
+     *
+     * @param {*} raw - 原始单元格值
+     * @returns {number} 解析后的数值，无法解析返回 NaN
+     */
+    function _parseNumericValue(raw) {
+        // 空值处理
+        if (raw === undefined || raw === null || raw === '') {
+            return NaN;
+        }
+
+        // 如果已经是数字类型，直接返回
+        if (typeof raw === 'number') {
+            return raw;
+        }
+
+        // 转为字符串并去除首尾空格
+        var str = String(raw).trim();
+
+        // 百分比格式处理：如 "15%"、"45.5%" → 转换为小数
+        if (str.charAt(str.length - 1) === '%') {
+            var percentValue = parseFloat(str.slice(0, -1));
+            if (!isNaN(percentValue)) {
+                return percentValue / 100;
+            }
+            return NaN;
+        }
+
+        // 普通数字解析
+        return parseFloat(str);
     }
 
     // ========== 公开 API ==========

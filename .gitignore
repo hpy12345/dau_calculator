@@ -1,0 +1,15 @@
+# 忽略所有文件和目录
+/*
+
+# 保留 dnu-dau-calculator 目录
+!/dnu-dau-calculator/
+
+# 保留 .gitignore 自身
+!.gitignore
+
+# dnu-dau-calculator 内部的忽略规则
+dnu-dau-calculator/__pycache__/
+dnu-dau-calculator/**/__pycache__/
+dnu-dau-calculator/**/*.pyc
+dnu-dau-calculator/**/*.pyo
+dnu-dau-calculator/data/projects/

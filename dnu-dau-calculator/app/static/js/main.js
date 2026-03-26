@@ -82,7 +82,8 @@
 
             setTimeout(function () {
                 toast.style.opacity = '0';
-                toast.style.transition = 'opacity 0.3s ease';
+                toast.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+                toast.style.transform = 'translate(-50%, -50%) scale(0.9)';
                 setTimeout(function () {
                     if (toast.parentNode) {
                         toast.parentNode.removeChild(toast);

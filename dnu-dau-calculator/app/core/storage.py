@@ -114,6 +114,7 @@ def save_project(project_data):
     
     说明:
         - 自动更新 updated_at 时间戳
+        - 保留原有的 created_at 字段，防止前端未传递时丢失
         - 将整个项目数据覆盖写入对应的 JSON 文件
     """
     _ensure_data_dir()
@@ -122,9 +123,24 @@ def save_project(project_data):
     if not project_id:
         raise ValueError('项目数据缺少 project_id 字段')
 
+    # 读取原有数据，保留 created_at 等元数据字段
+    json_path = _project_json_path(project_id)
+    if os.path.exists(json_path):
+        try:
+            with open(json_path, 'r', encoding='utf-8') as f:
+                existing_data = json.load(f)
+            # 如果前端未传递 created_at，从原有数据中恢复
+            if 'created_at' not in project_data and 'created_at' in existing_data:
+                project_data['created_at'] = existing_data['created_at']
+        except (json.JSONDecodeError, IOError):
+            pass
+
+    # 如果仍然没有 created_at（新项目或数据损坏），使用当前时间
+    if 'created_at' not in project_data:
+        project_data['created_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
     project_data['updated_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
-    json_path = _project_json_path(project_id)
     with open(json_path, 'w', encoding='utf-8') as f:
         json.dump(project_data, f, ensure_ascii=False, indent=2)
 

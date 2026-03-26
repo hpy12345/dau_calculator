@@ -5,10 +5,13 @@ DAU 计算引擎模块 (calculator.py)
 基于 NumPy/Pandas 的 DAU（日活跃用户）核心计算逻辑。
 
 核心算法原理：
-  DAU(t) = Σ DNU(i) × Retention(t - i)，其中 i 从第1天到第t天
+  DAU(t) = Σ DNU(d) × Retention(t - d)，其中 d 从第0天到第t天
   
   即：第 t 天的日活 = 历史每一天的新增用户数 × 对应天数后的留存率 之和。
   这本质上是 DNU 序列与留存率序列的离散卷积 (Convolution)。
+
+  投资期内（period_days 天），每天按固定/指定的 DNU 值投放新用户；
+  投资结束后 DNU 为 0，DAU 随留存率衰减而逐步下降。
 
 数据格式约定（天数-数据 对应）：
   DNU 数据:       [{"day": 1, "value": 1500}, {"day": 2, "value": 1800}, ...]
@@ -65,13 +68,20 @@ def _series_to_day_value_pairs(series):
     return result
 
 
-def calculate_dau(dnu_data, retention_data):
+def calculate_dau(dnu_data, retention_data, total_days=None):
     """
     核心 DAU 计算函数
     
     参数:
         dnu_data (list[dict]): DNU 数据，格式 [{"day": 1, "value": 1500}, ...]
+            - day 表示投资期内的第几天（从1开始）
+            - value 表示当天的新增用户数
         retention_data (list[dict]): 留存率数据，格式 [{"day": 1, "value": 0.45}, ...]
+            - day=1 表示次日留存率，day=2 表示第2天留存率，以此类推
+            - value 为小数形式（如 0.45 表示 45%）
+        total_days (int|None): 总计算天数。
+            - 若指定，则计算 total_days 天的 DAU（包含投资结束后的衰减期）
+            - 若不指定，默认为 投资期天数 + 留存率天数（自动覆盖完整衰减周期）
     
     返回:
         list[dict]: DAU 计算结果，格式 [{"day": 1, "value": ...}, ...]
@@ -79,10 +89,19 @@ def calculate_dau(dnu_data, retention_data):
     算法说明:
         使用 NumPy 的 np.convolve 实现 DNU 与留存率的离散卷积：
         
-        1. 将 DNU 序列和留存率序列对齐为从第1天开始的连续数组
-        2. 留存率序列需要在首位插入 1.0（第0天留存率=100%，即当天新增即为当天活跃）
+        1. 构建长度为 total_days 的 DNU 数组：投资期内填入每天的 DNU 值，其余天为 0
+        2. 构建留存率向量：ret_vec[0] = 1.0（当天新增即为当天活跃），
+           ret_vec[i] = 第 i 天的留存率
         3. 执行卷积运算：DAU = convolve(DNU, Retention)
-        4. 截取与 DNU 等长的有效部分作为结果
+        4. 截取前 total_days 天的有效结果
+        
+    举例:
+        假设投资 3 天，每天 DNU = 1000，留存率 = [1.0, 0.4, 0.3, 0.25, ...]：
+        Day 0: 1000 × 1.0 = 1000
+        Day 1: 1000 × 1.0 + 1000 × 0.4 = 1400
+        Day 2: 1000 × 1.0 + 1000 × 0.4 + 1000 × 0.3 = 1700
+        Day 3: 0 + 1000 × 0.4 + 1000 × 0.3 + 1000 × 0.25 = 950
+        投资期内 DAU 逐天攀升，停止投放后 DAU 随留存衰减而下降。
     """
     # 解析前端传来的天数-数据对
     dnu_series = _parse_day_value_pairs(dnu_data)
@@ -92,24 +111,33 @@ def calculate_dau(dnu_data, retention_data):
         return []
 
     # ========== 数据预处理 ==========
-    # 获取 DNU 的天数范围
-    max_day = int(dnu_series.index.max())
-    
-    # 构建连续的 DNU 数组（缺失天数填充0）
-    dnu_array = np.zeros(max_day, dtype=float)
+    # 获取投资期天数（DNU 数据覆盖的最大天数）
+    period_days = int(dnu_series.index.max())
+
+    # 获取留存率数据覆盖的最大天数
+    max_ret_day = int(ret_series.index.max()) if not ret_series.empty else 0
+
+    # 确定总计算天数：投资期 + 留存衰减期
+    if total_days is None:
+        # 默认计算到留存率数据能覆盖的完整衰减周期
+        total_days = period_days + max_ret_day
+    total_days = max(total_days, period_days)  # 至少覆盖投资期
+
+    # ========== 构建 DNU 数组 ==========
+    # 长度为 total_days，投资期内填入 DNU 值，其余天为 0
+    dnu_array = np.zeros(total_days, dtype=float)
     for day, value in dnu_series.items():
         idx = int(day) - 1  # 天数从1开始，数组索引从0开始
-        if 0 <= idx < max_day:
+        if 0 <= idx < total_days:
             dnu_array[idx] = value
 
-    # 构建留存率数组
-    # 第0天留存率为 1.0（当天新增用户当天即为活跃用户）
-    # 后续天数按传入的留存率数据填充
+    # ========== 构建留存率向量 ==========
+    # ret_vec[0] = 1.0（第0天留存率 = 100%，当天新增用户当天即为活跃用户）
+    # ret_vec[i] = 第 i 天的留存率
     if ret_series.empty:
         # 若无留存率数据，默认只有当天活跃
         retention_array = np.array([1.0])
     else:
-        max_ret_day = int(ret_series.index.max())
         retention_array = np.zeros(max_ret_day + 1, dtype=float)
         retention_array[0] = 1.0  # 第0天（当天）留存率 = 100%
         for day, value in ret_series.items():
@@ -122,12 +150,12 @@ def calculate_dau(dnu_data, retention_data):
     # mode='full' 返回完整卷积结果，长度为 len(dnu) + len(ret) - 1
     dau_full = np.convolve(dnu_array, retention_array, mode='full')
 
-    # 只取前 max_day 天的结果（与 DNU 天数对齐）
-    dau_array = dau_full[:max_day]
+    # 只取前 total_days 天的结果
+    dau_array = dau_full[:total_days]
 
     # ========== 结果格式化 ==========
     # 转换为 Pandas Series 再输出为天数-数据对格式
-    dau_series = pd.Series(dau_array, index=range(1, max_day + 1))
+    dau_series = pd.Series(dau_array, index=range(1, total_days + 1))
     dau_series.index.name = 'day'
 
     return _series_to_day_value_pairs(dau_series)
