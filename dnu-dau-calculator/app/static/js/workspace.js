@@ -7,11 +7,12 @@
  *
  * 核心职责：
  *   1. 标签页 (Tabs) 的切换、新增、删除
- *   2. 数据录入模式管理（手动输入 / Excel 导入）
- *   3. 从 DOM 表格中收集 "天数-数据" 对应格式的数据
- *   4. 通过 fetch 异步提交 JSON 到后端 API
- *   5. 接收计算结果后调用 chart 模块渲染图表
- *   6. 统一数据展示行为：无论新导入还是加载已保存数据，均以预览模式展示
+ *   2. DNU 数据按时间段设置（日均固定值 / 线性变化）
+ *   3. 留存率数据录入管理（手动输入 / Excel 导入）
+ *   4. 从 DOM 中收集 "天数-数据" 对应格式的数据
+ *   5. 通过 fetch 异步提交 JSON 到后端 API
+ *   6. 接收计算结果后调用 chart 模块渲染图表
+ *   7. 统一数据展示行为：无论新导入还是加载已保存数据，均以预览模式展示
  */
 
 ;(function (global) {
@@ -25,7 +26,7 @@
     /** 预览模式下最大展示行数 */
     var MAX_PREVIEW_ROWS = 30;
 
-    /** 数据录入模式枚举 */
+    /** 数据录入模式枚举（仅留存率使用） */
     var INPUT_MODE = {
         MANUAL: 'manual',
         IMPORT: 'import'
@@ -41,15 +42,72 @@
 
     /**
      * 导入数据缓存：存储完整的导入/加载数据（不受展示行数限制）
-     * 结构：{ 'dnu': { 0: [...], 1: [...] }, 'retention': { 0: [...], 1: [...] } }
+     * 结构：{ 'retention': { 0: [...], 1: [...] } }
+     * 注意：DNU 不再使用此缓存，改为从时间段实时生成
      */
     var _importedData = {};
 
     /**
-     * 各标签页各数据类型的当前录入模式
-     * 结构：{ 'dnu': { 0: 'manual', 1: 'import' }, 'retention': { 0: 'import' } }
+     * 各标签页各数据类型的当前录入模式（仅留存率使用）
+     * 结构：{ 'retention': { 0: 'import' } }
      */
     var _inputModes = {};
+
+    /**
+     * DNU 时间段计数器：记录每个标签页的时间段自增索引
+     * 结构：{ 0: 1, 1: 0 }
+     */
+    var _dnuSegmentCounters = {};
+
+    // ==================== 日期辅助函数 ====================
+
+    /**
+     * 获取今天的日期字符串（YYYY-MM-DD 格式）
+     * @returns {string}
+     */
+    function _getTodayStr() {
+        var d = new Date();
+        return d.getFullYear() + '-' +
+            String(d.getMonth() + 1).padStart(2, '0') + '-' +
+            String(d.getDate()).padStart(2, '0');
+    }
+
+    /**
+     * 将日期字符串偏移指定天数
+     * @param {string} dateStr - YYYY-MM-DD 格式的日期
+     * @param {number} offsetDays - 偏移天数（正数为未来，负数为过去）
+     * @returns {string} YYYY-MM-DD 格式的日期
+     */
+    function _offsetDateStr(dateStr, offsetDays) {
+        var d = new Date(dateStr + 'T00:00:00');
+        d.setDate(d.getDate() + offsetDays);
+        return d.getFullYear() + '-' +
+            String(d.getMonth() + 1).padStart(2, '0') + '-' +
+            String(d.getDate()).padStart(2, '0');
+    }
+
+    /**
+     * 计算两个日期之间的天数差（含首尾）
+     * @param {string} startStr - 起始日期 YYYY-MM-DD
+     * @param {string} endStr - 结束日期 YYYY-MM-DD
+     * @returns {number} 天数差（含首尾，最小为1）
+     */
+    function _daysBetween(startStr, endStr) {
+        var s = new Date(startStr + 'T00:00:00');
+        var e = new Date(endStr + 'T00:00:00');
+        var diff = Math.round((e - s) / (1000 * 60 * 60 * 24));
+        return Math.max(diff + 1, 1); // 含首尾
+    }
+
+    /**
+     * 将天数序号转换为日期字符串（基于基准日期）
+     * @param {number} dayNum - 天数序号（从1开始）
+     * @param {string} baseDate - 基准日期 YYYY-MM-DD（day=1 对应的日期）
+     * @returns {string} YYYY-MM-DD 格式的日期
+     */
+    function _dayNumToDateStr(dayNum, baseDate) {
+        return _offsetDateStr(baseDate, dayNum - 1);
+    }
 
     /**
      * 初始化工作区
@@ -64,12 +122,14 @@
 
         // 加载已保存的项目数据，统一以预览模式渲染
         _initSavedData();
+
+        // 加载已保存的留存率曲线列表
+        _refreshAllSavedCurvesLists();
     }
 
     /**
      * 初始化已保存的项目数据
-     * 从页面内嵌的 JSON 数据中读取，对有数据的标签页执行预览模式渲染，
-     * 确保与 Excel 导入后的展示行为完全一致
+     * 从页面内嵌的 JSON 数据中读取，对有数据的标签页执行预览模式渲染
      */
     function _initSavedData() {
         var dataScript = document.getElementById('savedProjectData');
@@ -87,11 +147,9 @@
         for (var i = 0; i < project.tabs.length; i++) {
             var tab = project.tabs[i];
 
-            // 如果有 DNU 数据，以预览模式展示
+            // 如果有 DNU 数据，反向解析为时间段并渲染
             if (tab.dnu_data && tab.dnu_data.length > 0) {
-                _renderImportPreview('dnu', i, tab.dnu_data);
-                // 自动切换到导入模式
-                switchInputMode('dnu', i, INPUT_MODE.IMPORT);
+                _loadDnuDataAsSegments(i, tab.dnu_data);
             }
 
             // 如果有留存率数据，以预览模式展示
@@ -99,21 +157,343 @@
                 _renderImportPreview('retention', i, tab.retention_data);
                 // 自动切换到导入模式
                 switchInputMode('retention', i, INPUT_MODE.IMPORT);
+                // 显示保存曲线按钮
+                _showSaveCurveBar(i);
             }
         }
     }
 
-    // ==================== 数据录入模式管理 ====================
+    /**
+     * 将已保存的 DNU 数据加载为时间段
+     * 将 [{day:1, value:100}, {day:2, value:100}, ...] 格式的数据
+     * 反向解析为一个覆盖全部天数的日均固定值时间段
+     *
+     * @param {number} tabIndex - 标签页索引
+     * @param {Array<Object>} dnuData - DNU 数据数组
+     */
+    function _loadDnuDataAsSegments(tabIndex, dnuData) {
+        if (!dnuData || dnuData.length === 0) return;
+
+        var container = document.getElementById('dnuSegments_' + tabIndex);
+        if (!container) return;
+
+        // 清空现有时间段
+        container.innerHTML = '';
+        _dnuSegmentCounters[tabIndex] = 0;
+
+        // 按天数排序
+        var sorted = dnuData.slice().sort(function (a, b) { return a.day - b.day; });
+
+        // 智能分段：将连续且数值相同的天数合并为一个固定值时间段，
+        // 连续且数值线性变化的合并为线性时间段
+        var segments = _detectSegments(sorted);
+
+        // 将天数序号转换为日期（以今天为 day=1 的基准日期）
+        var baseDate = _getTodayStr();
+        for (var i = 0; i < segments.length; i++) {
+            var seg = segments[i];
+            seg.startDate = _dayNumToDateStr(seg.start, baseDate);
+            seg.endDate = _dayNumToDateStr(seg.end, baseDate);
+            _addDnuSegmentDOM(tabIndex, container, seg);
+        }
+    }
+
+    /**
+     * 智能检测数据中的时间段模式
+     * 将连续天数的数据分组为固定值或线性变化的时间段
+     *
+     * @param {Array<Object>} sortedData - 按天数排序的数据
+     * @returns {Array<Object>} 时间段数组，每项包含 {start, end, mode, value?, startValue?, endValue?}
+     */
+    function _detectSegments(sortedData) {
+        if (!sortedData || sortedData.length === 0) return [];
+
+        // 简单策略：将所有数据作为一个时间段
+        // 检查是否所有值相同（固定值）或线性变化
+        var startDay = sortedData[0].day;
+        var endDay = sortedData[sortedData.length - 1].day;
+        var firstValue = sortedData[0].value;
+        var lastValue = sortedData[sortedData.length - 1].value;
+
+        var allSame = true;
+         for (var i = 1; i < sortedData.length; i++) {
+            if (sortedData[i].value !== firstValue) {
+                allSame = false;
+                break;
+            }
+        }
+
+        if (allSame) {
+            return [{ start: startDay, end: endDay, mode: 'fixed', value: firstValue }];
+        }
+
+        // 检查是否为线性变化
+        var isLinear = true;
+        var dayCount = endDay - startDay;
+        if (dayCount > 0) {
+            for (var j = 0; j < sortedData.length; j++) {
+                var expectedValue = firstValue + (lastValue - firstValue) * (sortedData[j].day - startDay) / dayCount;
+                if (Math.abs(sortedData[j].value - expectedValue) > 1) {
+                    isLinear = false;
+                    break;
+                }
+            }
+        }
+
+        if (isLinear) {
+            return [{ start: startDay, end: endDay, mode: 'linear', startValue: firstValue, endValue: lastValue }];
+        }
+
+        // 无法精确还原时，作为一个固定值时间段（取平均值）
+        var sum = 0;
+        for (var k = 0; k < sortedData.length; k++) {
+            sum += sortedData[k].value;
+        }
+        var avg = Math.round(sum / sortedData.length);
+        return [{ start: startDay, end: endDay, mode: 'fixed', value: avg }];
+    }
+
+    /**
+     * 向指定标签页的时间段容器中添加一个时间段 DOM 元素
+     *
+     * @param {number} tabIndex - 标签页索引
+     * @param {Element} container - 时间段容器 DOM
+     * @param {Object} [segData] - 可选的预填数据
+     */
+    function _addDnuSegmentDOM(tabIndex, container, segData) {
+        if (!_dnuSegmentCounters[tabIndex]) _dnuSegmentCounters[tabIndex] = 0;
+        var segIndex = _dnuSegmentCounters[tabIndex]++;
+
+        var mode = (segData && segData.mode) || 'fixed';
+        var startDate = (segData && segData.startDate) || _getTodayStr();
+        var endDate = (segData && segData.endDate) || _offsetDateStr(_getTodayStr(), 29);
+        var fixedValue = (segData && segData.value) || '';
+        var startValue = (segData && segData.startValue) || '';
+        var endValue = (segData && segData.endValue) || '';
+
+        var isFixed = (mode === 'fixed');
+
+        var div = document.createElement('div');
+        div.className = 'dnu-segment';
+        div.setAttribute('data-segment-index', segIndex);
+        div.innerHTML =
+            '<div class="dnu-segment__row">' +
+            '  <div class="dnu-segment__field">' +
+            '    <label>起始日期</label>' +
+            '    <input type="date" class="form-input dnu-seg-start" value="' + startDate + '">' +
+            '  </div>' +
+            '  <div class="dnu-segment__field">' +
+            '    <label>结束日期</label>' +
+            '    <input type="date" class="form-input dnu-seg-end" value="' + endDate + '">' +
+            '  </div>' +
+            '  <div class="dnu-segment__field">' +
+            '    <label>数值模式</label>' +
+            '    <select class="form-input dnu-seg-mode" onchange="IAA.workspace.onDnuModeChange(this)">' +
+            '      <option value="fixed"' + (isFixed ? ' selected' : '') + '>日均固定值</option>' +
+            '      <option value="linear"' + (!isFixed ? ' selected' : '') + '>线性变化</option>' +
+            '    </select>' +
+            '  </div>' +
+            '  <div class="dnu-segment__field dnu-seg-fixed-fields"' + (!isFixed ? ' style="display:none;"' : '') + '>' +
+            '    <label>DNU 数值</label>' +
+            '    <input type="number" class="form-input dnu-seg-value" value="' + fixedValue + '" min="0" step="1" placeholder="如 1000">' +
+            '  </div>' +
+            '  <div class="dnu-segment__field dnu-seg-linear-fields"' + (isFixed ? ' style="display:none;"' : '') + '>' +
+            '    <label>起始值</label>' +
+            '    <input type="number" class="form-input dnu-seg-start-value" value="' + startValue + '" min="0" step="1" placeholder="如 100">' +
+            '  </div>' +
+            '  <div class="dnu-segment__field dnu-seg-linear-fields"' + (isFixed ? ' style="display:none;"' : '') + '>' +
+            '    <label>结束值</label>' +
+            '    <input type="number" class="form-input dnu-seg-end-value" value="' + endValue + '" min="0" step="1" placeholder="如 1000">' +
+            '  </div>' +
+            '  <div class="dnu-segment__actions">' +
+'          <button class="btn btn-danger btn-sm" onclick="IAA.workspace.removeDnuSegment(this)" title="删除此时间段">删除</button>' +
+            '  </div>' +
+            '</div>';
+
+        container.appendChild(div);
+    }
+
+    // ==================== DNU 时间段管理 ====================
+
+    /**
+     * 添加 DNU 时间段
+     * @param {number} tabIndex - 标签页索引
+     */
+    function addDnuSegment(tabIndex) {
+        var container = document.getElementById('dnuSegments_' + tabIndex);
+        if (!container) return;
+
+        // 自动推算起始日期：取已有时间段的最大结束日期 + 1 天
+        var segments = container.querySelectorAll('.dnu-segment');
+        var nextStartDate = _getTodayStr();
+        for (var i = 0; i < segments.length; i++) {
+            var endInput = segments[i].querySelector('.dnu-seg-end');
+            if (endInput && endInput.value) {
+                var candidateDate = _offsetDateStr(endInput.value, 1);
+                if (candidateDate > nextStartDate) {
+                    nextStartDate = candidateDate;
+                }
+            }
+        }
+
+        _addDnuSegmentDOM(tabIndex, container, {
+            startDate: nextStartDate,
+            endDate: _offsetDateStr(nextStartDate, 29),
+            mode: 'fixed'
+        });
+    }
+
+    /**
+     * 删除 DNU 时间段
+     * @param {Element} btn - 触发删除的按钮元素
+     */
+    function removeDnuSegment(btn) {
+        var segment = btn.closest('.dnu-segment');
+        if (segment && segment.parentNode) {
+            var container = segment.parentNode;
+            container.removeChild(segment);
+
+            // 如果没有时间段了，提示用户
+            if (container.querySelectorAll('.dnu-segment').length === 0) {
+                utils.showToast('已清空所有时间段，请添加新的时间段', 'info');
+            }
+        }
+    }
+
+    /**
+     * 清空所有 DNU 时间段
+     * @param {number} tabIndex - 标签页索引
+     */
+    function clearDnuSegments(tabIndex) {
+        if (!confirm('确定要清空所有 DNU 时间段吗？')) return;
+
+        var container = document.getElementById('dnuSegments_' + tabIndex);
+        if (!container) return;
+
+        container.innerHTML = '';
+        _dnuSegmentCounters[tabIndex] = 0;
+
+        // 清除预览
+        var preview = document.getElementById('dnuPreview_' + tabIndex);
+        if (preview) preview.innerHTML = '';
+
+        utils.showToast('已清空所有 DNU 时间段', 'info');
+    }
+
+    /**
+     * DNU 数值模式切换回调
+     * 切换日均固定值和线性变化模式时，显示/隐藏对应的输入字段
+     *
+     * @param {Element} selectEl - 模式选择下拉框元素
+     */
+    function onDnuModeChange(selectEl) {
+        var segment = selectEl.closest('.dnu-segment');
+        if (!segment) return;
+
+        var mode = selectEl.value;
+        var fixedFields = segment.querySelectorAll('.dnu-seg-fixed-fields');
+        var linearFields = segment.querySelectorAll('.dnu-seg-linear-fields');
+
+        for (var i = 0; i < fixedFields.length; i++) {
+            fixedFields[i].style.display = (mode === 'fixed') ? '' : 'none';
+        }
+        for (var j = 0; j < linearFields.length; j++) {
+            linearFields[j].style.display = (mode === 'linear') ? '' : 'none';
+        }
+    }
+
+    /**
+     * 从 DNU 时间段配置生成 "天数-数据" 对象数组
+     * 将用户设置的时间段展开为逐天的 DNU 数据
+     *
+     * @param {number} tabIndex - 标签页索引
+     * @returns {Array<Object>} 格式为 [{day: 1, value: 1500}, ...] 的对象数组
+     */
+    function _collectDnuFromSegments(tabIndex) {
+        var container = document.getElementById('dnuSegments_' + tabIndex);
+        if (!container) return [];
+
+        var segments = container.querySelectorAll('.dnu-segment');
+
+        // 第一步：收集所有时间段的日期，确定全局基准日期（最早的起始日期 = day 1）
+        var allDates = [];
+        for (var p = 0; p < segments.length; p++) {
+            var s = segments[p].querySelector('.dnu-seg-start').value;
+            var e = segments[p].querySelector('.dnu-seg-end').value;
+            if (s) allDates.push(s);
+            if (e) allDates.push(e);
+        }
+        if (allDates.length === 0) return [];
+
+        allDates.sort();
+        var baseDate = allDates[0]; // 全局最早日期作为 day=1
+
+        var dataMap = {}; // 用 Map 避免天数重复时的冲突，后面的时间段覆盖前面的
+
+        for (var i = 0; i < segments.length; i++) {
+            var seg = segments[i];
+            var startDateStr = seg.querySelector('.dnu-seg-start').value;
+            var endDateStr = seg.querySelector('.dnu-seg-end').value;
+            var mode = seg.querySelector('.dnu-seg-mode').value;
+
+            // 校验日期有效性
+            if (!startDateStr || !endDateStr) continue;
+            if (startDateStr > endDateStr) continue;
+
+            // 将日期转换为相对于基准日期的天数序号
+            var startDay = _daysBetweenExclusive(baseDate, startDateStr) + 1;
+            var endDay = _daysBetweenExclusive(baseDate, endDateStr) + 1;
+
+            if (mode === 'fixed') {
+                var fixedValue = parseFloat(seg.querySelector('.dnu-seg-value').value);
+                if (isNaN(fixedValue)) continue;
+
+                for (var d = startDay; d <= endDay; d++) {
+                    dataMap[d] = Math.round(fixedValue);
+                }
+            } else if (mode === 'linear') {
+                var sv = parseFloat(seg.querySelector('.dnu-seg-start-value').value);
+                var ev = parseFloat(seg.querySelector('.dnu-seg-end-value').value);
+                if (isNaN(sv) || isNaN(ev)) continue;
+
+                var totalDays = endDay - startDay;
+                for (var d2 = startDay; d2 <= endDay; d2++) {
+                    var ratio = (totalDays === 0) ? 0 : (d2 - startDay) / totalDays;
+                    var val = sv + (ev - sv) * ratio;
+                    dataMap[d2] = Math.round(val);
+                }
+            }
+        }
+
+        // 转换为数组并按天数排序
+        var result = [];
+        var days = Object.keys(dataMap).sort(function (a, b) { return parseInt(a) - parseInt(b); });
+        for (var k = 0; k < days.length; k++) {
+            result.push({ day: parseInt(days[k]), value: dataMap[days[k]] });
+        }
+
+        return result;
+    }
+
+    /**
+     * 计算两个日期之间的天数差（不含首日）
+     * @param {string} fromStr - 起始日期 YYYY-MM-DD
+     * @param {string} toStr - 目标日期 YYYY-MM-DD
+     * @returns {number} 天数差（fromStr 到 toStr 的天数，fromStr 当天为 0）
+     */
+    function _daysBetweenExclusive(fromStr, toStr) {
+        var s = new Date(fromStr + 'T00:00:00');
+        var e = new Date(toStr + 'T00:00:00');
+        return Math.round((e - s) / (1000 * 60 * 60 * 24));
+    }
+
+    // ==================== 数据录入模式管理（仅留存率使用） ====================
 
     /**
      * 切换数据录入模式（手动输入 / Excel 导入）
+     * 仅用于留存率数据
      *
-     * 切换逻辑：
-     *   1. 更新按钮高亮状态
-     *   2. 显示/隐藏对应的面板
-     *   3. 记录当前模式到内部状态
-     *
-     * @param {string} type - 数据类型：'dnu' 或 'retention'
+     * @param {string} type - 数据类型：'retention'
      * @param {number} tabIndex - 标签页索引
      * @param {string} mode - 目标模式：'manual' 或 'import'
      */
@@ -341,6 +721,9 @@
         utils.hideModal('#addTabModal');
         switchTab(newIndex);
         utils.showToast('标签「' + tabName + '」已添加', 'success');
+
+        // 4. 刷新新标签页的已保存曲线列表
+        _refreshAllSavedCurvesLists();
     }
 
     /**
@@ -376,7 +759,6 @@
         panel.parentNode.removeChild(panel);
 
         // 清理缓存数据
-        _clearImportedData('dnu', index);
         _clearImportedData('retention', index);
 
         // 如果删除的是当前激活的标签，切换到第一个
@@ -394,24 +776,28 @@
     // ==================== 数据收集 ====================
 
     /**
-     * 从 DOM 表格中收集 "天数-数据" 对应格式的数据
+     * 从 DOM 中收集 "天数-数据" 对应格式的数据
      *
      * 收集策略：
-     *   1. 优先从缓存中获取完整数据（导入/加载的数据可能超过预览行数限制）
-     *   2. 如果缓存中没有数据（用户手动输入），则从 DOM 表格中读取
-     *   3. 留存率数据从 data-raw-value 属性读取原始小数值（而非百分比展示值）
+     *   - DNU：从时间段配置实时生成逐天数据
+     *   - 留存率：优先从缓存中获取完整数据，否则从 DOM 表格中读取
      *
      * @param {string} type - 数据类型：'dnu' 或 'retention'
      * @param {number} tabIndex - 标签页索引
-     * @returns {Array<Object>} 格式为 [{\"day\": 1, \"value\": 1500}, ...] 的对象数组
+     * @returns {Array<Object>} 格式为 [{"day": 1, "value": 1500}, ...] 的对象数组
      */
     function collectTableData(type, tabIndex) {
-        // 优先从缓存中获取完整数据（导入/加载的数据可能超过预览行数）
+        // DNU 数据从时间段配置实时生成
+        if (type === 'dnu') {
+            return _collectDnuFromSegments(tabIndex);
+        }
+
+        // 留存率：优先从缓存中获取完整数据（导入/加载的数据可能超过预览行数）
         if (_importedData[type] && _importedData[type][tabIndex]) {
             return _importedData[type][tabIndex];
         }
 
-        var tableId = (type === 'dnu') ? 'dnuTable_' + tabIndex : 'retTable_' + tabIndex;
+        var tableId = 'retTable_' + tabIndex;
         var table = document.getElementById(tableId);
         if (!table) return [];
 
@@ -419,22 +805,15 @@
         var data = [];
 
         for (var i = 0; i < rows.length; i++) {
-            var dayInput, valueInput;
-
-            if (type === 'dnu') {
-                dayInput = rows[i].querySelector('.dnu-day');
-                valueInput = rows[i].querySelector('.dnu-value');
-            } else {
-                dayInput = rows[i].querySelector('.ret-day');
-                valueInput = rows[i].querySelector('.ret-value');
-            }
+            var dayInput = rows[i].querySelector('.ret-day');
+            var valueInput = rows[i].querySelector('.ret-value');
 
             if (dayInput && valueInput) {
                 var day = parseInt(dayInput.value, 10);
                 var value;
 
                 // 留存率数据优先从 data-raw-value 属性读取原始小数值
-                if (type === 'retention' && valueInput.hasAttribute('data-raw-value')) {
+                if (valueInput.hasAttribute('data-raw-value')) {
                     value = parseFloat(valueInput.getAttribute('data-raw-value'));
                 } else {
                     value = parseFloat(valueInput.value);
@@ -684,12 +1063,12 @@
     // ==================== 表格行操作 ====================
 
     /**
-     * 添加数据行
-     * @param {string} type - 'dnu' 或 'retention'
+     * 添加数据行（仅留存率使用）
+     * @param {string} type - 'retention'
      * @param {number} tabIndex - 标签页索引
      */
     function addRow(type, tabIndex) {
-        var tableId = (type === 'dnu') ? 'dnuTable_' + tabIndex : 'retTable_' + tabIndex;
+        var tableId = 'retTable_' + tabIndex;
         var table = document.getElementById(tableId);
         if (!table) return;
 
@@ -698,15 +1077,9 @@
         var newDay = rowCount + 1;
 
         var tr = document.createElement('tr');
-        if (type === 'dnu') {
-            tr.innerHTML = '<td><input type="number" class="dnu-day" value="' + newDay + '" min="1"></td>' +
-                '<td><input type="number" class="dnu-value" value="" min="0" step="1" placeholder="输入DNU"></td>' +
-                '<td><button class="btn btn-danger btn-sm" onclick="IAA.workspace.removeRow(this)">删除</button></td>';
-        } else {
-            tr.innerHTML = '<td><input type="number" class="ret-day" value="' + newDay + '" min="1"></td>' +
-                '<td><input type="number" class="ret-value" value="" min="0" max="1" step="0.01" placeholder="如 0.45"></td>' +
-                '<td><button class="btn btn-danger btn-sm" onclick="IAA.workspace.removeRow(this)">删除</button></td>';
-        }
+        tr.innerHTML = '<td><input type="number" class="ret-day" value="' + newDay + '" min="1"></td>' +
+            '<td><input type="number" class="ret-value" value="" min="0" max="1" step="0.01" placeholder="如 0.45"></td>' +
+            '<td><button class="btn btn-danger btn-sm" onclick="IAA.workspace.removeRow(this)">删除</button></td>';
 
         tbody.appendChild(tr);
     }
@@ -723,14 +1096,14 @@
     }
 
     /**
-     * 清空表格数据
-     * @param {string} type - 'dnu' 或 'retention'
+     * 清空表格数据（仅留存率使用）
+     * @param {string} type - 'retention'
      * @param {number} tabIndex - 标签页索引
      */
     function clearTable(type, tabIndex) {
         if (!confirm('确定要清空所有数据吗？')) return;
 
-        var tableId = (type === 'dnu') ? 'dnuTable_' + tabIndex : 'retTable_' + tabIndex;
+        var tableId = 'retTable_' + tabIndex;
         var table = document.getElementById(tableId);
         if (!table) return;
 
@@ -758,16 +1131,11 @@
     }
 
     /**
-     * 填充表格数据（供 Excel 解析模块调用）
+     * 填充表格数据（供 Excel 解析模块调用，仅留存率使用）
      *
-     * 统一展示策略（与加载已保存数据行为一致）：
-     *   1. 完整数据存储在 _importedData 缓存中，供后续计算使用
-     *   2. 调用 _renderImportPreview 渲染预览表格
-     *   3. 自动切换到导入模式面板
-     *
-     * @param {string} type - 'dnu' 或 'retention'
+     * @param {string} type - 'retention'
      * @param {number} tabIndex - 标签页索引
-     * @param {Array<Object>} data - [{\"day\": 1, \"value\": 1500}, ...]
+     * @param {Array<Object>} data - [{"day": 1, "value": 0.45}, ...]
      */
     function fillTableData(type, tabIndex, data) {
         if (!data || !data.length) return;
@@ -787,19 +1155,15 @@
             (data.length > MAX_PREVIEW_ROWS ? '（展示前 ' + MAX_PREVIEW_ROWS + ' 行）' : ''),
             'success'
         );
+
+        // 显示"保存为曲线"按钮
+        _showSaveCurveBar(tabIndex);
     }
 
     /**
-     * 渲染导入数据预览表格（统一展示逻辑）
+     * 渲染导入数据预览表格（仅留存率使用）
      *
-     * 无论数据来源是 Excel 导入还是加载已保存项目，均使用此函数渲染，
-     * 确保展示行为完全一致：
-     *   1. 仅展示前 MAX_PREVIEW_ROWS 行数据，使用纯文本只读表格
-     *   2. 表格容器带滚动条（固定最大高度），方便查看数据
-     *   3. 在表格上方标注数据总行数和当前显示行数
-     *   4. 留存率数据以百分比格式展示（保留两位小数），原始精度不受影响
-     *
-     * @param {string} type - 'dnu' 或 'retention'
+     * @param {string} type - 'retention'
      * @param {number} tabIndex - 标签页索引
      * @param {Array<Object>} data - 完整数据数组
      */
@@ -811,7 +1175,7 @@
         _importedData[type][tabIndex] = data;
 
         // 获取预览容器
-        var prefix = (type === 'dnu') ? 'dnu' : 'ret';
+        var prefix = 'ret';
         var previewWrapper = document.getElementById(prefix + 'ImportPreview_' + tabIndex);
         if (!previewWrapper) return;
 
@@ -839,8 +1203,8 @@
         var previewTable = document.createElement('table');
         previewTable.className = 'data-table imported-data-table';
 
-        // 表头：仅两列（天数 + 数值），无操作列
-        var valueHeader = (type === 'dnu') ? 'DNU 数值' : '留存率';
+        // 表头
+        var valueHeader = '留存率';
         previewTable.innerHTML = '<thead><tr>' +
             '<th>天数 (Day)</th>' +
             '<th>' + valueHeader + '</th>' +
@@ -852,16 +1216,10 @@
             var item = data[i];
             var tr = document.createElement('tr');
 
-            if (type === 'dnu') {
-                // DNU 数据直接展示数值
-                tr.innerHTML = '<td>' + item.day + '</td>' +
-                    '<td>' + item.value + '</td>';
-            } else {
-                // 留存率展示为百分比格式（保留两位小数）
-                var displayValue = (item.value * 100).toFixed(2) + '%';
-                tr.innerHTML = '<td>' + item.day + '</td>' +
-                    '<td>' + displayValue + '</td>';
-            }
+            // 留存率展示为百分比格式（保留两位小数）
+            var displayValue = (item.value * 100).toFixed(2) + '%';
+            tr.innerHTML = '<td>' + item.day + '</td>' +
+                '<td>' + displayValue + '</td>';
 
             tbody.appendChild(tr);
         }
@@ -870,18 +1228,19 @@
         scrollWrapper.appendChild(previewTable);
         previewWrapper.appendChild(scrollWrapper);
 
-        // 添加"重新上传"按钮
+        // 添加"保存为留存率曲线"和"清除导入数据"按钮（同一行）
         var reuploadBar = document.createElement('div');
-        reuploadBar.className = 'data-table__actions';
+        reuploadBar.className = 'data-table__actions import-actions-bar';
         reuploadBar.style.marginTop = '12px';
         reuploadBar.innerHTML =
+            '<button class="btn btn-primary btn-sm" onclick="IAA.workspace.showSaveCurveModal(' + tabIndex + ')">💾 保存为留存率曲线</button>' +
             '<button class="btn btn-secondary btn-sm" onclick="IAA.workspace.clearImportData(\'' + type + '\', ' + tabIndex + ')">' +
             '🗑️ 清除导入数据</button>';
         previewWrapper.appendChild(reuploadBar);
     }
 
     /**
-     * 清除导入数据并切换回手动输入模式
+     * 清除导入数据并切换回手动输入模式（仅留存率使用）
      * @param {string} type - 数据类型
      * @param {number} tabIndex - 标签页索引
      */
@@ -890,11 +1249,14 @@
         _clearImportedData(type, tabIndex);
 
         // 清空预览区域
-        var prefix = (type === 'dnu') ? 'dnu' : 'ret';
+        var prefix = 'ret';
         var previewWrapper = document.getElementById(prefix + 'ImportPreview_' + tabIndex);
         if (previewWrapper) {
             previewWrapper.innerHTML = '';
         }
+
+        // 隐藏保存曲线按钮
+        _hideSaveCurveBar(tabIndex);
 
         // 切换回手动输入模式
         switchInputMode(type, tabIndex, INPUT_MODE.MANUAL);
@@ -931,6 +1293,213 @@
                 input.removeEventListener('blur', onBlur);
             });
         }
+    }
+
+    // ==================== 留存率曲线保存与加载 ====================
+
+    /**
+     * 显示"保存为曲线"按钮（已集成到导入预览中，无需单独操作）
+     * @param {number} tabIndex - 标签页索引
+     */
+    function _showSaveCurveBar(tabIndex) {
+        // 保存按钮已集成到导入预览的操作栏中，随预览一起显示
+    }
+
+    /**
+     * 隐藏"保存为曲线"按钮（已集成到导入预览中，无需单独操作）
+     * @param {number} tabIndex - 标签页索引
+     */
+    function _hideSaveCurveBar(tabIndex) {
+        // 保存按钮已集成到导入预览的操作栏中，随预览一起销毁
+    }
+
+    /**
+     * 弹出保存曲线命名弹窗
+     * @param {number} tabIndex - 标签页索引
+     */
+    function showSaveCurveModal(tabIndex) {
+        // 检查是否有导入数据
+        var data = collectTableData('retention', tabIndex);
+        if (!data || data.length === 0) {
+            utils.showToast('当前没有留存率数据可保存', 'error');
+            return;
+        }
+
+        document.getElementById('saveCurveTabIndex').value = tabIndex;
+        document.getElementById('curveNameInput').value = '';
+        var hint = document.getElementById('curveNameHint');
+        if (hint) hint.style.display = 'none';
+
+        utils.showModal('#saveCurveModal');
+
+        // 聚焦输入框
+        setTimeout(function () {
+            document.getElementById('curveNameInput').focus();
+        }, 100);
+    }
+
+    /**
+     * 确认保存曲线
+     */
+    function confirmSaveCurve() {
+        var nameInput = document.getElementById('curveNameInput');
+        var tabIndex = parseInt(document.getElementById('saveCurveTabIndex').value, 10);
+        var name = nameInput.value.trim();
+        var hint = document.getElementById('curveNameHint');
+
+        if (!name) {
+            if (hint) {
+                hint.textContent = '⚠️ 请输入曲线名称';
+                hint.className = 'form-hint form-hint--error';
+                hint.style.display = 'block';
+            }
+            return;
+        }
+
+        var data = collectTableData('retention', tabIndex);
+        if (!data || data.length === 0) {
+            utils.showToast('当前没有留存率数据可保存', 'error');
+            return;
+        }
+
+        var btn = document.getElementById('confirmSaveCurveBtn');
+        if (btn) {
+            btn.disabled = true;
+            btn.textContent = '保存中...';
+        }
+
+        utils.request('/api/retention-curves', {
+            method: 'POST',
+            body: { name: name, data: data }
+        })
+        .then(function (result) {
+            utils.showToast(result.message || '曲线保存成功', 'success');
+            utils.hideModal('#saveCurveModal');
+            // 刷新所有标签页的已保存曲线列表
+            _refreshAllSavedCurvesLists();
+        })
+        .catch(function (err) {
+            if (hint) {
+                hint.textContent = '⚠️ ' + (err.message || '保存失败');
+                hint.className = 'form-hint form-hint--error';
+                hint.style.display = 'block';
+            }
+        })
+        .finally(function () {
+            if (btn) {
+                btn.disabled = false;
+                btn.textContent = '确认保存';
+            }
+        });
+    }
+
+    /**
+     * 刷新所有标签页的已保存曲线列表
+     */
+    function _refreshAllSavedCurvesLists() {
+        utils.request('/api/retention-curves', { method: 'GET' })
+        .then(function (result) {
+            var curves = result.curves || [];
+            // 更新所有标签页的曲线列表
+            var lists = document.querySelectorAll('.saved-curves-list');
+            for (var i = 0; i < lists.length; i++) {
+                _renderSavedCurvesList(lists[i], curves);
+            }
+        })
+        .catch(function () {
+            // 静默失败
+        });
+    }
+
+    /**
+     * 渲染已保存曲线列表
+     * @param {Element} container - 列表容器
+     * @param {Array<Object>} curves - 曲线摘要数组
+     */
+    function _renderSavedCurvesList(container, curves) {
+        if (!container) return;
+
+        if (!curves || curves.length === 0) {
+            container.innerHTML = '<div class="saved-curves-empty">暂无已保存的曲线</div>';
+            return;
+        }
+
+        var html = '';
+        for (var i = 0; i < curves.length; i++) {
+            var c = curves[i];
+            html += '<div class="saved-curve-item" data-curve-id="' + c.id + '">' +
+                '  <div class="saved-curve-item__info" onclick="IAA.workspace.loadSavedCurve(\'' + c.id + '\')">' +
+                '    <div class="saved-curve-item__name" title="' + _escapeHtml(c.name) + '">' + _escapeHtml(c.name) + '</div>' +
+                '    <div class="saved-curve-item__meta">' + c.data_count + ' 天数据</div>' +
+                '  </div>' +
+                '  <button class="saved-curve-item__delete" title="删除" onclick="IAA.workspace.deleteSavedCurve(\'' + c.id + '\', \'' + _escapeHtml(c.name) + '\')">✕</button>' +
+                '</div>';
+        }
+        container.innerHTML = html;
+    }
+
+    /**
+     * 加载已保存的曲线数据到当前标签页
+     * @param {string} curveId - 曲线ID
+     */
+    function loadSavedCurve(curveId) {
+        var tabIndex = state.activeTabIndex;
+
+        utils.request('/api/retention-curves/' + curveId, { method: 'GET' })
+        .then(function (result) {
+            var curve = result.curve;
+            if (!curve || !curve.data || curve.data.length === 0) {
+                utils.showToast('曲线数据为空', 'error');
+                return;
+            }
+
+            // 使用与 Excel 导入相同的方式展示数据
+            fillTableData('retention', tabIndex, curve.data);
+
+            utils.showToast('已加载曲线「' + curve.name + '」', 'success');
+
+            // 高亮选中的曲线项
+            _highlightSelectedCurve(tabIndex, curveId);
+        })
+        .catch(function (err) {
+            utils.showToast(err.message || '加载曲线失败', 'error');
+        });
+    }
+
+    /**
+     * 高亮选中的曲线项
+     * @param {number} tabIndex - 标签页索引
+     * @param {string} curveId - 曲线ID
+     */
+    function _highlightSelectedCurve(tabIndex, curveId) {
+        var panel = document.getElementById('savedCurvesPanel_' + tabIndex);
+        if (!panel) return;
+
+        var items = panel.querySelectorAll('.saved-curve-item');
+        for (var i = 0; i < items.length; i++) {
+            items[i].classList.remove('saved-curve-item--active');
+            if (items[i].getAttribute('data-curve-id') === curveId) {
+                items[i].classList.add('saved-curve-item--active');
+            }
+        }
+    }
+
+    /**
+     * 删除已保存的曲线
+     * @param {string} curveId - 曲线ID
+     * @param {string} curveName - 曲线名称
+     */
+    function deleteSavedCurve(curveId, curveName) {
+        if (!confirm('确定要删除曲线「' + curveName + '」吗？')) return;
+
+        utils.request('/api/retention-curves/' + curveId, { method: 'DELETE' })
+        .then(function () {
+            utils.showToast('曲线已删除', 'info');
+            _refreshAllSavedCurvesLists();
+        })
+        .catch(function (err) {
+            utils.showToast(err.message || '删除失败', 'error');
+        });
     }
 
     // ==================== 结果列表视图渲染 ====================
@@ -983,65 +1552,93 @@
 
     /**
      * 动态构建新标签页面板的 HTML
-     * 包含手动输入和 Excel 导入两种模式的完整面板结构
+     * DNU 使用时间段设置，留存率保留手动输入和 Excel 导入两种模式
      */
     function _buildPanelHTML(tabName, index) {
         return '' +
             '<div class="data-section">' +
-            '  <div class="data-section__title">📈 DNU（日新增用户）数据 <span class="badge">天数-数值 对应</span></div>' +
-            '  <div class="input-mode-toggle" data-type="dnu" data-tab-index="' + index + '">' +
-            '    <button class="input-mode-btn active" data-mode="manual" onclick="IAA.workspace.switchInputMode(\'dnu\', ' + index + ', \'manual\')">✏️ 手动输入</button>' +
-            '    <button class="input-mode-btn" data-mode="import" onclick="IAA.workspace.switchInputMode(\'dnu\', ' + index + ', \'import\')">📁 Excel 导入</button>' +
-            '  </div>' +
-            '  <div class="input-mode-panel input-mode-panel--manual active" id="dnuManualPanel_' + index + '">' +
-            '    <div class="data-table-wrapper">' +
-            '      <table class="data-table" id="dnuTable_' + index + '">' +
-            '        <thead><tr><th>天数 (Day)</th><th>DNU 数值</th><th>操作</th></tr></thead>' +
-            '        <tbody></tbody>' +
-            '      </table>' +
+'  <div class="data-section__title">📉 留存率数据</div>' +
+            '  <div class="retention-layout">' +
+            '    <div class="retention-layout__left">' +
+            '      <div class="input-mode-toggle" data-type="retention" data-tab-index="' + index + '">' +
+            '        <button class="input-mode-btn active" data-mode="manual" onclick="IAA.workspace.switchInputMode(\'retention\', ' + index + ', \'manual\')">✏️ 手动输入</button>' +
+            '        <button class="input-mode-btn" data-mode="import" onclick="IAA.workspace.switchInputMode(\'retention\', ' + index + ', \'import\')">📁 Excel 导入</button>' +
+            '      </div>' +
+            '      <div class="input-mode-panel input-mode-panel--manual active" id="retManualPanel_' + index + '">' +
+            '        <div class="data-table-wrapper">' +
+            '          <table class="data-table" id="retTable_' + index + '">' +
+            '            <thead><tr><th>天数 (Day)</th><th>留存率</th><th>操作</th></tr></thead>' +
+            '            <tbody></tbody>' +
+            '          </table>' +
+            '        </div>' +
+            '        <div class="data-table__actions">' +
+            '          <button class="btn btn-secondary btn-sm" onclick="IAA.workspace.addRow(\'retention\', ' + index + ')">➕ 添加行</button>' +
+            '          <button class="btn btn-secondary btn-sm" onclick="IAA.workspace.clearTable(\'retention\', ' + index + ')">🗑️ 清空</button>' +
+            '        </div>' +
+            '      </div>' +
+            '      <div class="input-mode-panel input-mode-panel--import" id="retImportPanel_' + index + '">' +
+            '        <div class="upload-area">' +
+            '          <input type="file" accept=".xlsx,.xls,.csv" style="display:none" id="retFileInput_' + index + '" ' +
+            '                 onchange="IAA.excel.handleUpload(this, \'retention\', ' + index + ')">' +
+            '          <button class="btn btn-secondary btn-sm" onclick="document.getElementById(\'retFileInput_' + index + '\').click()">📁 选择文件上传</button>' +
+            '          <span class="upload-area__text">留存率为小数形式（如 0.45 表示 45%）</span>' +
+            '        </div>' +
+            '        <div class="import-preview-wrapper" id="retImportPreview_' + index + '"></div>' +
+            '      </div>' +
             '    </div>' +
-            '    <div class="data-table__actions">' +
-            '      <button class="btn btn-secondary btn-sm" onclick="IAA.workspace.addRow(\'dnu\', ' + index + ')">➕ 添加行</button>' +
-            '      <button class="btn btn-secondary btn-sm" onclick="IAA.workspace.clearTable(\'dnu\', ' + index + ')">🗑️ 清空</button>' +
+            '    <div class="retention-layout__right">' +
+            '      <div class="saved-curves-panel" id="savedCurvesPanel_' + index + '">' +
+            '        <div class="saved-curves-panel__title">📋 已保存的曲线</div>' +
+            '        <div class="saved-curves-list" id="savedCurvesList_' + index + '">' +
+            '          <div class="saved-curves-empty">暂无已保存的曲线</div>' +
+            '        </div>' +
+            '      </div>' +
             '    </div>' +
-            '  </div>' +
-            '  <div class="input-mode-panel input-mode-panel--import" id="dnuImportPanel_' + index + '">' +
-            '    <div class="upload-area">' +
-            '      <input type="file" accept=".xlsx,.xls,.csv" style="display:none" id="dnuFileInput_' + index + '" ' +
-            '             onchange="IAA.excel.handleUpload(this, \'dnu\', ' + index + ')">' +
-            '      <button class="btn btn-secondary btn-sm" onclick="document.getElementById(\'dnuFileInput_' + index + '\').click()">📁 选择文件上传</button>' +
-            '      <span class="upload-area__text">支持 .xlsx / .xls / .csv 格式</span>' +
-            '    </div>' +
-            '    <div class="import-preview-wrapper" id="dnuImportPreview_' + index + '"></div>' +
             '  </div>' +
             '</div>' +
             '<div class="data-section">' +
-            '  <div class="data-section__title">📉 留存率数据 <span class="badge">天数-比率 对应</span></div>' +
-            '  <div class="input-mode-toggle" data-type="retention" data-tab-index="' + index + '">' +
-            '    <button class="input-mode-btn active" data-mode="manual" onclick="IAA.workspace.switchInputMode(\'retention\', ' + index + ', \'manual\')">✏️ 手动输入</button>' +
-            '    <button class="input-mode-btn" data-mode="import" onclick="IAA.workspace.switchInputMode(\'retention\', ' + index + ', \'import\')">📁 Excel 导入</button>' +
-            '  </div>' +
-            '  <div class="input-mode-panel input-mode-panel--manual active" id="retManualPanel_' + index + '">' +
-            '    <div class="data-table-wrapper">' +
-            '      <table class="data-table" id="retTable_' + index + '">' +
-            '        <thead><tr><th>天数 (Day)</th><th>留存率</th><th>操作</th></tr></thead>' +
-            '        <tbody></tbody>' +
-            '      </table>' +
+'  <div class="data-section__title">📈 DNU 数据</div>' +
+            '  <div class="dnu-segments-container" id="dnuSegments_' + index + '">' +
+            '    <div class="dnu-segment" data-segment-index="0">' +
+            '      <div class="dnu-segment__row">' +
+            '        <div class="dnu-segment__field">' +
+            '          <label>起始日期</label>' +
+            '          <input type="date" class="form-input dnu-seg-start" value="' + _getTodayStr() + '">' +
+            '        </div>' +
+            '        <div class="dnu-segment__field">' +
+            '          <label>结束日期</label>' +
+            '          <input type="date" class="form-input dnu-seg-end" value="' + _offsetDateStr(_getTodayStr(), 29) + '">' +
+            '        </div>' +
+            '        <div class="dnu-segment__field">' +
+            '          <label>数值模式</label>' +
+            '          <select class="form-input dnu-seg-mode" onchange="IAA.workspace.onDnuModeChange(this)">' +
+            '            <option value="fixed">日均固定值</option>' +
+            '            <option value="linear">线性变化</option>' +
+            '          </select>' +
+            '        </div>' +
+            '        <div class="dnu-segment__field dnu-seg-fixed-fields">' +
+            '          <label>DNU 数值</label>' +
+            '          <input type="number" class="form-input dnu-seg-value" value="" min="0" step="1" placeholder="如 1000">' +
+            '        </div>' +
+            '        <div class="dnu-segment__field dnu-seg-linear-fields" style="display:none;">' +
+            '          <label>起始值</label>' +
+            '          <input type="number" class="form-input dnu-seg-start-value" value="" min="0" step="1" placeholder="如 100">' +
+            '        </div>' +
+            '        <div class="dnu-segment__field dnu-seg-linear-fields" style="display:none;">' +
+            '          <label>结束值</label>' +
+            '          <input type="number" class="form-input dnu-seg-end-value" value="" min="0" step="1" placeholder="如 1000">' +
+            '        </div>' +
+            '        <div class="dnu-segment__actions">' +
+'    <button class="btn btn-danger btn-sm" onclick="IAA.workspace.removeDnuSegment(this)" title="删除此时间段">删除</button>' +
+            '        </div>' +
+            '      </div>' +
             '    </div>' +
-            '    <div class="data-table__actions">' +
-            '      <button class="btn btn-secondary btn-sm" onclick="IAA.workspace.addRow(\'retention\', ' + index + ')">➕ 添加行</button>' +
-            '      <button class="btn btn-secondary btn-sm" onclick="IAA.workspace.clearTable(\'retention\', ' + index + ')">🗑️ 清空</button>' +
-            '    </div>' +
             '  </div>' +
-            '  <div class="input-mode-panel input-mode-panel--import" id="retImportPanel_' + index + '">' +
-            '    <div class="upload-area">' +
-            '      <input type="file" accept=".xlsx,.xls,.csv" style="display:none" id="retFileInput_' + index + '" ' +
-            '             onchange="IAA.excel.handleUpload(this, \'retention\', ' + index + ')">' +
-            '      <button class="btn btn-secondary btn-sm" onclick="document.getElementById(\'retFileInput_' + index + '\').click()">📁 选择文件上传</button>' +
-            '      <span class="upload-area__text">留存率为小数形式（如 0.45 表示 45%）</span>' +
-            '    </div>' +
-            '    <div class="import-preview-wrapper" id="retImportPreview_' + index + '"></div>' +
+            '  <div class="data-table__actions">' +
+            '    <button class="btn btn-secondary btn-sm" onclick="IAA.workspace.addDnuSegment(' + index + ')">➕ 添加时间段</button>' +
+            '    <button class="btn btn-secondary btn-sm" onclick="IAA.workspace.clearDnuSegments(' + index + ')">🗑️ 清空</button>' +
             '  </div>' +
+            '  <div class="dnu-preview-wrapper" id="dnuPreview_' + index + '"></div>' +
             '</div>' +
             '</div>';
     }
@@ -1075,7 +1672,15 @@
         collectAllTabsData: collectAllTabsData,
         switchInputMode: switchInputMode,
         clearImportData: clearImportData,
-        _switchToEditMode: _switchToEditMode
+        _switchToEditMode: _switchToEditMode,
+        addDnuSegment: addDnuSegment,
+        removeDnuSegment: removeDnuSegment,
+        clearDnuSegments: clearDnuSegments,
+        onDnuModeChange: onDnuModeChange,
+        showSaveCurveModal: showSaveCurveModal,
+        confirmSaveCurve: confirmSaveCurve,
+        loadSavedCurve: loadSavedCurve,
+        deleteSavedCurve: deleteSavedCurve
     };
 
 })(window);

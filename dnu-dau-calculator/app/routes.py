@@ -15,10 +15,15 @@ API 路由：
   DELETE /api/project/<id>      -- 删除项目
   POST /api/calculate/dau       -- 计算 DAU
   POST /api/calculate/total     -- 计算全局汇总
+  GET  /api/retention-curves     -- 获取已保存的留存率曲线列表
+  POST /api/retention-curves     -- 保存留存率曲线
+  GET  /api/retention-curves/<id> -- 获取单条留存率曲线
+  DELETE /api/retention-curves/<id> -- 删除留存率曲线
+  POST /api/retention-curves/check-name -- 校验曲线名称唯一性
 """
 
 from flask import Blueprint, render_template, request, jsonify, redirect, url_for
-from app.core import storage, calculator
+from app.core import storage, calculator, retention_curves
 
 # 创建蓝图，便于模块化管理路由
 main_bp = Blueprint('main', __name__)
@@ -211,3 +216,86 @@ def api_calculate_total():
         })
     except Exception as e:
         return jsonify({'success': False, 'message': '汇总计算失败: {}'.format(str(e))}), 500
+
+
+# ==================== 留存率曲线管理 API ====================
+
+@main_bp.route('/api/retention-curves', methods=['GET'])
+def api_list_retention_curves():
+    """
+    获取所有已保存的留存率曲线列表（摘要信息）
+    返回曲线 id、名称、数据条数、创建/更新时间
+    """
+    curves = retention_curves.list_curves()
+    return jsonify({'success': True, 'curves': curves})
+
+
+@main_bp.route('/api/retention-curves', methods=['POST'])
+def api_save_retention_curve():
+    """
+    保存留存率曲线 API
+    
+    期望的 JSON Payload：
+    {
+        "name": "北美SLG留存",
+        "data": [{"day": 1, "value": 0.45}, ...],
+        "curve_id": "xxx"  // 可选，指定则更新已有曲线
+    }
+    """
+    data = request.get_json(silent=True) or {}
+    name = data.get('name', '').strip()
+    curve_data = data.get('data', [])
+    curve_id = data.get('curve_id', None)
+
+    if not name:
+        return jsonify({'success': False, 'message': '曲线名称不能为空'}), 400
+
+    if not curve_data:
+        return jsonify({'success': False, 'message': '留存率数据不能为空'}), 400
+
+    try:
+        curve = retention_curves.save_curve(name, curve_data, curve_id=curve_id)
+        return jsonify({
+            'success': True,
+            'curve': curve,
+            'message': '曲线「{}」保存成功'.format(name)
+        })
+    except ValueError as e:
+        return jsonify({'success': False, 'message': str(e)}), 400
+    except Exception as e:
+        return jsonify({'success': False, 'message': '保存失败: {}'.format(str(e))}), 500
+
+
+@main_bp.route('/api/retention-curves/check-name', methods=['POST'])
+def api_check_curve_name():
+    """
+    校验曲线名称唯一性
+    期望 JSON: {"name": "xxx", "exclude_id": "xxx"}
+    """
+    data = request.get_json(silent=True) or {}
+    name = data.get('name', '').strip()
+    exclude_id = data.get('exclude_id', None)
+
+    if not name:
+        return jsonify({'success': True, 'exists': False})
+
+    exists = retention_curves.check_name_exists(name, exclude_id=exclude_id)
+    return jsonify({'success': True, 'exists': exists})
+
+
+@main_bp.route('/api/retention-curves/<curve_id>', methods=['GET'])
+def api_get_retention_curve(curve_id):
+    """获取单条留存率曲线的完整数据"""
+    curve = retention_curves.get_curve(curve_id)
+    if curve is None:
+        return jsonify({'success': False, 'message': '曲线不存在'}), 404
+    return jsonify({'success': True, 'curve': curve})
+
+
+@main_bp.route('/api/retention-curves/<curve_id>', methods=['DELETE'])
+def api_delete_retention_curve(curve_id):
+    """删除留存率曲线"""
+    success = retention_curves.delete_curve(curve_id)
+    if success:
+        return jsonify({'success': True, 'message': '曲线已删除'})
+    return jsonify({'success': False, 'message': '曲线不存在'}), 404

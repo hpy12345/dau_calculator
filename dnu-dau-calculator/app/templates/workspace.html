@@ -47,152 +47,160 @@
     {% for tab in project.tabs %}
     <div class="tab-panel {% if loop.first %}active{% endif %}" data-panel-index="{{ loop.index0 }}">
 
-        <!-- DNU 数据输入区 -->
-        <div class="data-section">
-            <div class="data-section__title">
-                📈 DNU（日新增用户）数据
-                <span class="badge">天数-数值 对应</span>
-            </div>
-
-            <!-- 数据录入模式切换 -->
-            <div class="input-mode-toggle" data-type="dnu" data-tab-index="{{ loop.index0 }}">
-                <button class="input-mode-btn active" data-mode="manual"
-                        onclick="IAA.workspace.switchInputMode('dnu', {{ loop.index0 }}, 'manual')">
-                    ✏️ 手动输入
-                </button>
-                <button class="input-mode-btn" data-mode="import"
-                        onclick="IAA.workspace.switchInputMode('dnu', {{ loop.index0 }}, 'import')">
-                    📁 Excel 导入
-                </button>
-            </div>
-
-            <!-- 手动输入模式面板 -->
-            <div class="input-mode-panel input-mode-panel--manual active"
-                 id="dnuManualPanel_{{ loop.index0 }}">
-                <div class="data-table-wrapper">
-                    <table class="data-table" id="dnuTable_{{ loop.index0 }}">
-                        <thead>
-                            <tr>
-                                <th>天数 (Day)</th>
-                                <th>DNU 数值</th>
-                                <th>操作</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {# 始终渲染空的手动输入表格，已保存数据由 JS 统一处理 #}
-                            {% if not tab.dnu_data %}
-                                {% for i in range(1, 6) %}
-                                <tr>
-                                    <td><input type="number" class="dnu-day" value="{{ i }}" min="1"></td>
-                                    <td><input type="number" class="dnu-value" value="" min="0" step="1" placeholder="输入DNU"></td>
-                                    <td><button class="btn btn-danger btn-sm" onclick="IAA.workspace.removeRow(this)">删除</button></td>
-                                </tr>
-                                {% endfor %}
-                            {% endif %}
-                        </tbody>
-                    </table>
-                </div>
-                <div class="data-table__actions">
-                    <button class="btn btn-secondary btn-sm" onclick="IAA.workspace.addRow('dnu', {{ loop.index0 }})">
-                        ➕ 添加行
-                    </button>
-                    <button class="btn btn-secondary btn-sm" onclick="IAA.workspace.clearTable('dnu', {{ loop.index0 }})">
-                        🗑️ 清空
-                    </button>
-                </div>
-            </div>
-
-            <!-- Excel 导入模式面板 -->
-            <div class="input-mode-panel input-mode-panel--import"
-                 id="dnuImportPanel_{{ loop.index0 }}">
-                <div class="upload-area">
-                    <input type="file" accept=".xlsx,.xls,.csv" class="excel-upload-input"
-                           data-target="dnu" data-tab-index="{{ loop.index0 }}"
-                           onchange="IAA.excel.handleUpload(this, 'dnu', {{ loop.index0 }})"
-                           style="display:none" id="dnuFileInput_{{ loop.index0 }}">
-                    <button class="btn btn-secondary btn-sm"
-                            onclick="document.getElementById('dnuFileInput_{{ loop.index0 }}').click()">
-                        📁 选择文件上传
-                    </button>
-                    <span class="upload-area__text">支持 .xlsx / .xls / .csv 格式，自动解析并填充</span>
-                </div>
-                <!-- 导入数据预览区域（由 JS 动态填充） -->
-                <div class="import-preview-wrapper" id="dnuImportPreview_{{ loop.index0 }}"></div>
-            </div>
-        </div>
-
         <!-- 留存率数据输入区 -->
         <div class="data-section">
             <div class="data-section__title">
                 📉 留存率数据
-                <span class="badge">天数-比率 对应</span>
             </div>
 
-            <!-- 数据录入模式切换 -->
-            <div class="input-mode-toggle" data-type="retention" data-tab-index="{{ loop.index0 }}">
-                <button class="input-mode-btn active" data-mode="manual"
-                        onclick="IAA.workspace.switchInputMode('retention', {{ loop.index0 }}, 'manual')">
-                    ✏️ 手动输入
+            <!-- 留存率左右布局容器 -->
+            <div class="retention-layout">
+                <!-- 左侧：手动输入 / Excel 导入 -->
+                <div class="retention-layout__left">
+                    <!-- 数据录入模式切换 -->
+                    <div class="input-mode-toggle" data-type="retention" data-tab-index="{{ loop.index0 }}">
+                        <button class="input-mode-btn active" data-mode="manual"
+                                onclick="IAA.workspace.switchInputMode('retention', {{ loop.index0 }}, 'manual')">
+                            ✏️ 手动输入
+                        </button>
+                        <button class="input-mode-btn" data-mode="import"
+                                onclick="IAA.workspace.switchInputMode('retention', {{ loop.index0 }}, 'import')">
+                            📁 Excel 导入
+                        </button>
+                    </div>
+
+                    <!-- 手动输入模式面板 -->
+                    <div class="input-mode-panel input-mode-panel--manual active"
+                         id="retManualPanel_{{ loop.index0 }}">
+                        <div class="data-table-wrapper">
+                            <table class="data-table" id="retTable_{{ loop.index0 }}">
+                                <thead>
+                                    <tr>
+                                        <th>天数 (Day)</th>
+                                        <th>留存率</th>
+                                        <th>操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {# 始终渲染空的手动输入表格，已保存数据由 JS 统一处理 #}
+                                    {% if not tab.retention_data %}
+                                        {% for i in range(1, 6) %}
+                                        <tr>
+                                            <td><input type="number" class="ret-day" value="{{ i }}" min="1"></td>
+                                            <td><input type="number" class="ret-value" value="" min="0" max="1" step="0.01" placeholder="如 0.45"></td>
+                                            <td><button class="btn btn-danger btn-sm" onclick="IAA.workspace.removeRow(this)">删除</button></td>
+                                        </tr>
+                                        {% endfor %}
+                                    {% endif %}
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="data-table__actions">
+                            <button class="btn btn-secondary btn-sm" onclick="IAA.workspace.addRow('retention', {{ loop.index0 }})">
+                                ➕ 添加行
+                            </button>
+                            <button class="btn btn-secondary btn-sm" onclick="IAA.workspace.clearTable('retention', {{ loop.index0 }})">
+                                🗑️ 清空
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Excel 导入模式面板 -->
+                    <div class="input-mode-panel input-mode-panel--import"
+                         id="retImportPanel_{{ loop.index0 }}">
+                        <div class="upload-area">
+                            <input type="file" accept=".xlsx,.xls,.csv" class="excel-upload-input"
+                                   data-target="retention" data-tab-index="{{ loop.index0 }}"
+                                   onchange="IAA.excel.handleUpload(this, 'retention', {{ loop.index0 }})"
+                                   style="display:none" id="retFileInput_{{ loop.index0 }}">
+                            <button class="btn btn-secondary btn-sm"
+                                    onclick="document.getElementById('retFileInput_{{ loop.index0 }}').click()">
+                                📁 选择文件上传
+                            </button>
+                            <span class="upload-area__text">留存率为小数形式（如 0.45 表示 45%）</span>
+                        </div>
+                        <!-- 导入数据预览区域（由 JS 动态填充） -->
+                        <div class="import-preview-wrapper" id="retImportPreview_{{ loop.index0 }}"></div>
+                    </div>
+
+                    <!-- 保存当前曲线按钮（导入数据后显示） -->
+                    <div class="save-curve-bar" id="saveCurveBar_{{ loop.index0 }}" style="display:none;">
+                        <button class="btn btn-primary btn-sm" onclick="IAA.workspace.showSaveCurveModal({{ loop.index0 }})">
+                            💾 保存为留存率曲线
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 右侧：已保存的留存率曲线 -->
+                <div class="retention-layout__right">
+                    <div class="saved-curves-panel" id="savedCurvesPanel_{{ loop.index0 }}">
+                        <div class="saved-curves-panel__title">📋 已保存的曲线</div>
+                        <div class="saved-curves-list" id="savedCurvesList_{{ loop.index0 }}">
+                            <div class="saved-curves-empty">暂无已保存的曲线</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- DNU 数据输入区 -->
+        <div class="data-section">
+            <div class="data-section__title">
+                📈 DNU 数据
+            </div>
+
+            <!-- DNU 时间段列表容器 -->
+            <div class="dnu-segments-container" id="dnuSegments_{{ loop.index0 }}">
+                {# 已保存数据由 JS 统一处理；无数据时默认渲染一个空时间段 #}
+                {% if not tab.dnu_data %}
+                <div class="dnu-segment" data-segment-index="0">
+                    <div class="dnu-segment__row">
+                        <div class="dnu-segment__field">
+                            <label>起始日期</label>
+                            <input type="date" class="form-input dnu-seg-start" value="" placeholder="起始日期">
+                        </div>
+                        <div class="dnu-segment__field">
+                            <label>结束日期</label>
+                            <input type="date" class="form-input dnu-seg-end" value="" placeholder="结束日期">
+                        </div>
+                        <div class="dnu-segment__field">
+                            <label>数值模式</label>
+                            <select class="form-input dnu-seg-mode" onchange="IAA.workspace.onDnuModeChange(this)">
+                                <option value="fixed">日均固定值</option>
+                                <option value="linear">线性变化</option>
+                            </select>
+                        </div>
+                        <div class="dnu-segment__field dnu-seg-fixed-fields">
+                            <label>DNU 数值</label>
+                            <input type="number" class="form-input dnu-seg-value" value="" min="0" step="1" placeholder="如 1000">
+                        </div>
+                        <div class="dnu-segment__field dnu-seg-linear-fields" style="display:none;">
+                            <label>起始值</label>
+                            <input type="number" class="form-input dnu-seg-start-value" value="" min="0" step="1" placeholder="如 100">
+                        </div>
+                        <div class="dnu-segment__field dnu-seg-linear-fields" style="display:none;">
+                            <label>结束值</label>
+                            <input type="number" class="form-input dnu-seg-end-value" value="" min="0" step="1" placeholder="如 1000">
+                        </div>
+                        <div class="dnu-segment__actions">
+<button class="btn btn-danger btn-sm" onclick="IAA.workspace.removeDnuSegment(this)" title="删除此时间段">删除</button>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+
+            <div class="data-table__actions">
+                <button class="btn btn-secondary btn-sm" onclick="IAA.workspace.addDnuSegment({{ loop.index0 }})">
+                    ➕ 添加时间段
                 </button>
-                <button class="input-mode-btn" data-mode="import"
-                        onclick="IAA.workspace.switchInputMode('retention', {{ loop.index0 }}, 'import')">
-                    📁 Excel 导入
+                <button class="btn btn-secondary btn-sm" onclick="IAA.workspace.clearDnuSegments({{ loop.index0 }})">
+                    🗑️ 清空
                 </button>
             </div>
 
-            <!-- 手动输入模式面板 -->
-            <div class="input-mode-panel input-mode-panel--manual active"
-                 id="retManualPanel_{{ loop.index0 }}">
-                <div class="data-table-wrapper">
-                    <table class="data-table" id="retTable_{{ loop.index0 }}">
-                        <thead>
-                            <tr>
-                                <th>天数 (Day)</th>
-                                <th>留存率</th>
-                                <th>操作</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {# 始终渲染空的手动输入表格，已保存数据由 JS 统一处理 #}
-                            {% if not tab.retention_data %}
-                                {% for i in range(1, 6) %}
-                                <tr>
-                                    <td><input type="number" class="ret-day" value="{{ i }}" min="1"></td>
-                                    <td><input type="number" class="ret-value" value="" min="0" max="1" step="0.01" placeholder="如 0.45"></td>
-                                    <td><button class="btn btn-danger btn-sm" onclick="IAA.workspace.removeRow(this)">删除</button></td>
-                                </tr>
-                                {% endfor %}
-                            {% endif %}
-                        </tbody>
-                    </table>
-                </div>
-                <div class="data-table__actions">
-                    <button class="btn btn-secondary btn-sm" onclick="IAA.workspace.addRow('retention', {{ loop.index0 }})">
-                        ➕ 添加行
-                    </button>
-                    <button class="btn btn-secondary btn-sm" onclick="IAA.workspace.clearTable('retention', {{ loop.index0 }})">
-                        🗑️ 清空
-                    </button>
-                </div>
-            </div>
-
-            <!-- Excel 导入模式面板 -->
-            <div class="input-mode-panel input-mode-panel--import"
-                 id="retImportPanel_{{ loop.index0 }}">
-                <div class="upload-area">
-                    <input type="file" accept=".xlsx,.xls,.csv" class="excel-upload-input"
-                           data-target="retention" data-tab-index="{{ loop.index0 }}"
-                           onchange="IAA.excel.handleUpload(this, 'retention', {{ loop.index0 }})"
-                           style="display:none" id="retFileInput_{{ loop.index0 }}">
-                    <button class="btn btn-secondary btn-sm"
-                            onclick="document.getElementById('retFileInput_{{ loop.index0 }}').click()">
-                        📁 选择文件上传
-                    </button>
-                    <span class="upload-area__text">留存率为小数形式（如 0.45 表示 45%）</span>
-                </div>
-                <!-- 导入数据预览区域（由 JS 动态填充） -->
-                <div class="import-preview-wrapper" id="retImportPreview_{{ loop.index0 }}"></div>
-            </div>
+            <!-- DNU 数据预览区域（由 JS 动态生成） -->
+            <div class="dnu-preview-wrapper" id="dnuPreview_{{ loop.index0 }}"></div>
         </div>
 
     </div>
@@ -342,6 +350,23 @@
         <div class="modal-dialog__actions">
             <button class="btn btn-secondary" onclick="IAA.utils.hideModal('#addTabModal')">取消</button>
             <button class="btn btn-primary" onclick="IAA.workspace.addTab()">确认添加</button>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== 保存留存率曲线弹窗 ==================== -->
+<div class="modal-overlay" id="saveCurveModal">
+    <div class="modal-dialog">
+        <div class="modal-dialog__title">💾 保存留存率曲线</div>
+        <div class="form-group">
+            <label for="curveNameInput">曲线名称</label>
+            <input type="text" class="form-input" id="curveNameInput" placeholder="例如：北美SLG留存、日韩RPG留存..." maxlength="50">
+            <div class="form-hint" id="curveNameHint" style="display:none;"></div>
+        </div>
+        <input type="hidden" id="saveCurveTabIndex" value="">
+        <div class="modal-dialog__actions">
+            <button class="btn btn-secondary" onclick="IAA.utils.hideModal('#saveCurveModal')">取消</button>
+            <button class="btn btn-primary" id="confirmSaveCurveBtn" onclick="IAA.workspace.confirmSaveCurve()">确认保存</button>
         </div>
     </div>
 </div>

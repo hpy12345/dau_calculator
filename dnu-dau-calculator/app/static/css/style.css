@@ -126,12 +126,13 @@ a:hover {
     padding: 8px 20px;
     font-size: 14px;
     font-weight: 500;
-    border: none;
+    border: 1px solid transparent;
     border-radius: var(--radius-sm);
     cursor: pointer;
     transition: var(--transition);
     white-space: nowrap;
     line-height: 1.4;
+    box-sizing: border-box;
 }
 
 .btn:disabled {
@@ -142,10 +143,12 @@ a:hover {
 .btn-primary {
     background: var(--primary-blue);
     color: var(--white);
+    border-color: var(--primary-blue);
 }
 
 .btn-primary:hover:not(:disabled) {
     background: var(--primary-blue-hover);
+    border-color: var(--primary-blue-hover);
     box-shadow: var(--shadow-md);
 }
 
@@ -163,10 +166,12 @@ a:hover {
 .btn-danger {
     background: var(--danger);
     color: var(--white);
+    border-color: var(--danger);
 }
 
 .btn-danger:hover:not(:disabled) {
     background: var(--danger-hover);
+    border-color: var(--danger-hover);
 }
 
 .btn-sm {
@@ -464,9 +469,14 @@ a:hover {
     display: block;
 }
 
-/* 数据输入区域 */
+/* 数据输入区域 —— 用边框包围每个板块，内部组件不超出 */
 .data-section {
     margin-bottom: 24px;
+    border: 1px solid var(--gray-200);
+    border-radius: var(--radius-md);
+    padding: 20px;
+    overflow: hidden;
+    background: var(--white);
 }
 
 .data-section__title {
@@ -567,7 +577,7 @@ a:hover {
 
 .data-table__actions {
     display: flex;
-    gap: 8px;
+    gap: 16px;
     margin-top: 8px;
 }
 
@@ -1094,6 +1104,88 @@ a:hover {
     }
 }
 
+/* ==================== DNU 时间段设置 ==================== */
+
+/* 时间段容器 */
+.dnu-segments-container {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+/* 单个时间段卡片 */
+.dnu-segment {
+    background: var(--gray-50);
+    border: 1px solid var(--gray-200);
+    border-radius: var(--radius-sm);
+    padding: 14px 16px;
+    transition: var(--transition);
+}
+
+.dnu-segment:hover {
+    border-color: var(--primary-blue);
+    box-shadow: var(--shadow-sm);
+}
+
+/* 时间段行布局 */
+.dnu-segment__row {
+    display: flex;
+    align-items: flex-end;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+/* 时间段字段 */
+.dnu-segment__field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 120px;
+}
+
+.dnu-segment__field label {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--gray-600);
+}
+
+.dnu-segment__field .form-input {
+    width: 140px;
+    padding: 6px 10px;
+    font-size: 13px;
+}
+
+.dnu-segment__field input[type="date"].form-input {
+    width: 160px;
+}
+
+.dnu-segment__field select.form-input {
+    width: 140px;
+    cursor: pointer;
+}
+
+/* 时间段操作按钮 */
+.dnu-segment__actions {
+    display: flex;
+    align-items: flex-end;
+    padding-bottom: 2px;
+    margin-left: auto;
+}
+
+.dnu-segment__actions .btn {
+    padding: 5px 14px;
+    font-size: 13px;
+    line-height: 1.4;
+    border-radius: 4px;
+    white-space: nowrap;
+}
+
+/* DNU 数据预览区域 */
+.dnu-preview-wrapper {
+    margin-top: 12px;
+}
+
 /* ==================== 响应式适配 ==================== */
 
 @media (max-width: 768px) {
@@ -1133,5 +1225,209 @@ a:hover {
 
     .result-tab-panel {
         padding: 16px;
+    }
+
+    .dnu-segment__row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .dnu-segment__field {
+        min-width: auto;
+    }
+
+    .dnu-segment__field .form-input {
+        width: 100%;
+    }
+
+    .dnu-segment__field select.form-input {
+        width: 100%;
+    }
+
+    .dnu-segment__actions {
+        align-self: flex-end;
+    }
+}
+
+/* ==================== 留存率左右布局 ==================== */
+
+/* 留存率区域左右布局容器 */
+.retention-layout {
+    display: flex;
+    gap: 20px;
+    align-items: flex-start;
+}
+
+/* 左侧：手动输入 / Excel 导入 */
+.retention-layout__left {
+    flex: 1;
+    min-width: 0;
+}
+
+/* 右侧：已保存曲线面板 */
+.retention-layout__right {
+    width: 260px;
+    flex-shrink: 0;
+}
+
+/* ==================== 已保存曲线面板 ==================== */
+
+.saved-curves-panel {
+    background: var(--gray-50);
+    border: 1px solid var(--gray-200);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+}
+
+.saved-curves-panel__title {
+    padding: 10px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--gray-700);
+    background: var(--white);
+    border-bottom: 1px solid var(--gray-200);
+}
+
+.saved-curves-list {
+    max-height: 400px;
+    overflow-y: auto;
+    padding: 8px;
+}
+
+/* 滚动条美化 */
+.saved-curves-list::-webkit-scrollbar {
+    width: 5px;
+}
+
+.saved-curves-list::-webkit-scrollbar-track {
+    background: var(--gray-100);
+}
+
+.saved-curves-list::-webkit-scrollbar-thumb {
+    background: var(--gray-400);
+    border-radius: 3px;
+}
+
+/* 空状态 */
+.saved-curves-empty {
+    text-align: center;
+    padding: 24px 12px;
+    color: var(--gray-500);
+    font-size: 13px;
+}
+
+/* 单条曲线项 */
+.saved-curve-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 10px;
+    border-radius: 4px;
+    border: 1px solid transparent;
+    transition: var(--transition);
+    margin-bottom: 4px;
+    background: var(--white);
+}
+
+.saved-curve-item:last-child {
+    margin-bottom: 0;
+}
+
+.saved-curve-item:hover {
+    border-color: var(--primary-blue);
+    box-shadow: var(--shadow-sm);
+}
+
+/* 选中状态 */
+.saved-curve-item--active {
+    border-color: var(--primary-blue);
+    background: var(--primary-blue-light);
+}
+
+.saved-curve-item__info {
+    flex: 1;
+    min-width: 0;
+    cursor: pointer;
+}
+
+.saved-curve-item__name {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--gray-800);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.saved-curve-item__meta {
+    font-size: 11px;
+    color: var(--gray-500);
+    margin-top: 2px;
+}
+
+.saved-curve-item__delete {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: none;
+    background: transparent;
+    color: var(--gray-400);
+    font-size: 12px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: var(--transition);
+    flex-shrink: 0;
+}
+
+.saved-curve-item__delete:hover {
+    background: #fce8e6;
+    color: var(--danger);
+}
+
+/* ==================== 保存曲线按钮栏 ==================== */
+
+.save-curve-bar {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--gray-200);
+}
+
+/* 导入数据操作栏：保存曲线 + 清除导入数据按钮同行 */
+.import-actions-bar {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+}
+
+/* ==================== 表单提示文字 ==================== */
+
+.form-hint {
+    font-size: 12px;
+    margin-top: 6px;
+    padding: 4px 8px;
+    border-radius: 4px;
+}
+
+.form-hint--error {
+    color: var(--danger);
+    background: #fce8e6;
+}
+
+.form-hint--success {
+    color: var(--success);
+    background: #e6f4ea;
+}
+
+/* ==================== 响应式：留存率布局 ==================== */
+
+@media (max-width: 768px) {
+    .retention-layout {
+        flex-direction: column;
+    }
+
+    .retention-layout__right {
+        width: 100%;
     }
 }
