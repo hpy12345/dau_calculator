@@ -1,5 +1,128 @@
 {% extends "base.html" %}
 
+{# ==================== Jinja2 宏定义 ==================== #}
+
+{#
+  图表视角切换按钮组宏
+  @param id_suffix  - 用于拼接元素 ID 的后缀（如 loop.index0 或 'total'）
+  @param is_string  - 是否以字符串形式传递参数（汇总区域需要传 'total' 字符串）
+#}
+{% macro chart_view_toggle(id_suffix, is_string=false) %}
+<div class="chart-view-toggle" id="chartViewToggle_{{ id_suffix }}">
+    {% if is_string %}
+    <button class="btn btn-chart-view active" data-view-mode="day"
+            onclick="IAA.workspace.switchChartViewMode('{{ id_suffix }}', 'day', this)">
+        📅 日视角
+    </button>
+    <button class="btn btn-chart-view" data-view-mode="month"
+            onclick="IAA.workspace.switchChartViewMode('{{ id_suffix }}', 'month', this)">
+        📆 月视角
+    </button>
+    {% else %}
+    <button class="btn btn-chart-view active" data-view-mode="day"
+            onclick="IAA.workspace.switchChartViewMode({{ id_suffix }}, 'day', this)">
+        📅 日视角
+    </button>
+    <button class="btn btn-chart-view" data-view-mode="month"
+            onclick="IAA.workspace.switchChartViewMode({{ id_suffix }}, 'month', this)">
+        📆 月视角
+    </button>
+    {% endif %}
+</div>
+{% endmacro %}
+
+{#
+  图表全局工具栏宏（日期范围 + 视角切换）
+  @param id_suffix  - 元素 ID 后缀
+  @param group_name - data-chart-group 属性值
+  @param is_string  - 参数是否为字符串类型
+#}
+{% macro chart_toolbar(id_suffix, group_name, is_string=false) %}
+<div class="chart-global-toolbar" data-chart-group="{{ group_name }}">
+    <div class="chart-global-toolbar__left">
+        <label class="chart-toolbar-label">📅 日期范围：</label>
+        <input type="date" class="form-input chart-date-input" id="chartStartDate_{{ id_suffix }}" placeholder="起始日期">
+        <span class="chart-toolbar-separator">至</span>
+        <input type="date" class="form-input chart-date-input" id="chartEndDate_{{ id_suffix }}" placeholder="结束日期">
+        {% if is_string %}
+        <button class="btn btn-secondary btn-sm chart-toolbar-btn" onclick="IAA.workspace.applyChartDateRange('{{ id_suffix }}')">
+            应用
+        </button>
+        <button class="btn btn-secondary btn-sm chart-toolbar-btn" onclick="IAA.workspace.resetChartDateRange('{{ id_suffix }}')">
+            重置
+        </button>
+        {% else %}
+        <button class="btn btn-secondary btn-sm chart-toolbar-btn" onclick="IAA.workspace.applyChartDateRange({{ id_suffix }})">
+            应用
+        </button>
+        <button class="btn btn-secondary btn-sm chart-toolbar-btn" onclick="IAA.workspace.resetChartDateRange({{ id_suffix }})">
+            重置
+        </button>
+        {% endif %}
+    </div>
+    <div class="chart-global-toolbar__right">
+        {{ chart_view_toggle(id_suffix, is_string) }}
+    </div>
+</div>
+{% endmacro %}
+
+{#
+  数据展示切换按钮组宏（图表/列表切换）
+  @param data_key   - 数据类型标识（如 'dnu', 'dau', 'totalDnu', 'totalDau'）
+  @param tab_index  - 标签页索引
+  @param aria_label - 无障碍标签文本
+  @param is_string  - tab_index 是否为字符串类型
+#}
+{% macro data_view_toggle(data_key, tab_index, aria_label, is_string=false) %}
+<div class="data-view-toggle" role="group" aria-label="{{ aria_label }}">
+    {% if is_string %}
+    <button type="button" class="btn btn-data-view active" data-view="chart"
+            onclick="IAA.chart.switchDataView('{{ data_key }}','{{ tab_index }}','chart',this)">
+        📈 图表展示
+    </button>
+    <button type="button" class="btn btn-data-view" data-view="list"
+            onclick="IAA.chart.switchDataView('{{ data_key }}','{{ tab_index }}','list',this)">
+        📋 列表展示
+    </button>
+    {% else %}
+    <button type="button" class="btn btn-data-view active" data-view="chart"
+            onclick="IAA.chart.switchDataView('{{ data_key }}',{{ tab_index }},'chart',this)">
+        📈 图表展示
+    </button>
+    <button type="button" class="btn btn-data-view" data-view="list"
+            onclick="IAA.chart.switchDataView('{{ data_key }}',{{ tab_index }},'list',this)">
+        📋 列表展示
+    </button>
+    {% endif %}
+</div>
+{% endmacro %}
+
+{#
+  单个图表容器宏（包含标题、切换按钮、表格区域、画布区域）
+  @param title        - 图表标题（如 "📈 DNU 曲线"）
+  @param data_key     - 数据类型标识
+  @param tab_index    - 标签页索引
+  @param table_id     - 表格容器 ID
+  @param canvas_id    - 画布元素 ID
+  @param wrap_id      - 画布外层容器 ID
+  @param aria_label   - 无障碍标签
+  @param is_string    - tab_index 是否为字符串类型
+#}
+{% macro chart_container(title, data_key, tab_index, table_id, canvas_id, wrap_id, aria_label, is_string=false) %}
+<div class="chart-container chart-container--full">
+    <div class="chart-container__toolbar">
+        <div class="chart-container__header">{{ title }}</div>
+        {{ data_view_toggle(data_key, tab_index, aria_label, is_string) }}
+    </div>
+    <div id="{{ table_id }}" class="data-table-wrap" style="display: none;"></div>
+    <div id="{{ wrap_id }}" class="data-chart-wrap">
+        <canvas id="{{ canvas_id }}" height="300"></canvas>
+    </div>
+</div>
+{% endmacro %}
+
+{# ==================== 页面块定义 ==================== #}
+
 {% block title %}{{ project.project_name }} - 工作区{% endblock %}
 
 {% block header_actions %}
@@ -13,12 +136,12 @@
 <input type="hidden" id="projectId" value="{{ project.project_id }}">
 <input type="hidden" id="projectName" value="{{ project.project_name }}">
 
-<!-- 将已保存的项目数据传递给 JS，用于统一的预览模式渲染 -->
+<!-- 将已保存的项目数据序列化为 JSON，供 JS 初始化时读取 -->
 <script id="savedProjectData" type="application/json">
     {{ project | tojson }}
 </script>
 
-<!-- 工作区项目信息栏 -->
+<!-- ==================== 工作区项目信息栏 ==================== -->
 <div class="workspace-info">
     <h1 class="workspace-info__name">📋 {{ project.project_name }}</h1>
     <a href="{{ url_for('main.index') }}" class="btn btn-secondary btn-sm">← 返回首页</a>
@@ -49,9 +172,7 @@
 
         <!-- 留存率数据输入区 -->
         <div class="data-section">
-            <div class="data-section__title">
-                📉 留存率数据
-            </div>
+            <div class="data-section__title">📉 留存率数据</div>
 
             <!-- 留存率左右布局容器 -->
             <div class="retention-layout">
@@ -82,15 +203,15 @@
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {# 始终渲染空的手动输入表格，已保存数据由 JS 统一处理 #}
+                                    {# 无已保存数据时渲染默认空行，已保存数据由 JS 统一填充 #}
                                     {% if not tab.retention_data %}
-                                        {% for i in range(1, 6) %}
-                                        <tr>
-                                            <td><input type="number" class="ret-day" value="{{ i }}" min="1"></td>
-                                            <td><input type="number" class="ret-value" value="" min="0" max="1" step="0.01" placeholder="如 0.45"></td>
-                                            <td><button class="btn btn-danger btn-sm" onclick="IAA.workspace.removeRow(this)">删除</button></td>
-                                        </tr>
-                                        {% endfor %}
+                                    {% for i in range(1, 6) %}
+                                    <tr>
+                                        <td><input type="number" class="ret-day" value="{{ i }}" min="1"></td>
+                                        <td><input type="number" class="ret-value" value="" min="0" max="1" step="0.01" placeholder="如 0.45"></td>
+                                        <td><button class="btn btn-danger btn-sm" onclick="IAA.workspace.removeRow(this)">删除</button></td>
+                                    </tr>
+                                    {% endfor %}
                                     {% endif %}
                                 </tbody>
                             </table>
@@ -123,7 +244,7 @@
                         <div class="import-preview-wrapper" id="retImportPreview_{{ loop.index0 }}"></div>
                     </div>
 
-                    <!-- 保存当前曲线按钮（导入数据后显示） -->
+                    <!-- 保存当前曲线按钮（导入数据后由 JS 控制显示） -->
                     <div class="save-curve-bar" id="saveCurveBar_{{ loop.index0 }}" style="display:none;">
                         <button class="btn btn-primary btn-sm" onclick="IAA.workspace.showSaveCurveModal({{ loop.index0 }})">
                             💾 保存为留存率曲线
@@ -131,7 +252,7 @@
                     </div>
                 </div>
 
-                <!-- 右侧：已保存的留存率曲线 -->
+                <!-- 右侧：已保存的留存率曲线列表 -->
                 <div class="retention-layout__right">
                     <div class="saved-curves-panel" id="savedCurvesPanel_{{ loop.index0 }}">
                         <div class="saved-curves-panel__title">📋 已保存的曲线</div>
@@ -145,13 +266,11 @@
 
         <!-- DNU 数据输入区 -->
         <div class="data-section">
-            <div class="data-section__title">
-                📈 DNU 数据
-            </div>
+            <div class="data-section__title">📈 DNU 数据</div>
 
             <!-- DNU 时间段列表容器 -->
             <div class="dnu-segments-container" id="dnuSegments_{{ loop.index0 }}">
-                {# 已保存数据由 JS 统一处理；无数据时默认渲染一个空时间段 #}
+                {# 无已保存数据时渲染默认空时间段，已保存数据由 JS 统一填充 #}
                 {% if not tab.dnu_data %}
                 <div class="dnu-segment" data-segment-index="0">
                     <div class="dnu-segment__row">
@@ -182,8 +301,15 @@
                             <label>结束值</label>
                             <input type="number" class="form-input dnu-seg-end-value" value="" min="0" step="1" placeholder="如 1000">
                         </div>
+                        <div class="dnu-segment__field dnu-segment__field--curve">
+                            <label>📉 留存率曲线</label>
+                            <select class="form-input dnu-seg-curve" onchange="IAA.workspace.onSegmentCurveChange(this)">
+                                <option value="" disabled>无可用曲线</option>
+                            </select>
+                            <span class="dnu-seg-curve-hint dnu-seg-curve-hint--invalid">⚠️ 请先在左侧保存留存率曲线</span>
+                        </div>
                         <div class="dnu-segment__actions">
-<button class="btn btn-danger btn-sm" onclick="IAA.workspace.removeDnuSegment(this)" title="删除此时间段">删除</button>
+                            <button class="btn btn-danger btn-sm" onclick="IAA.workspace.removeDnuSegment(this)" title="删除此时间段">删除</button>
                         </div>
                     </div>
                 </div>
@@ -216,9 +342,7 @@
 
 <!-- ==================== 分析结果区域 ==================== -->
 <div class="result-section" id="resultSection" style="display:none;">
-    <div class="result-section__title">
-        📊 分析结果
-    </div>
+    <div class="result-section__title">📊 分析结果</div>
 
     <!-- 分析结果标签栏 -->
     <div class="result-tabs-bar" id="resultTabsBar">
@@ -237,105 +361,59 @@
         <div class="result-tab-panel {% if loop.first %}active{% endif %}"
              id="chartSection_{{ loop.index0 }}"
              data-result-panel-index="{{ loop.index0 }}">
-            <div class="charts-dual-layout">
-                <!-- DNU 图表区域 -->
-                <div class="chart-container">
-                    <div class="chart-container__toolbar">
-                        <div class="chart-container__header">📈 DNU 曲线</div>
-                        <div class="data-view-toggle" role="group" aria-label="DNU 数据展示切换">
-                            <button type="button" class="btn btn-data-view active" data-view="chart"
-                                    onclick="IAA.chart.switchDataView('dnu',{{ loop.index0 }},'chart',this)">
-                                📈 图表展示
-                            </button>
-                            <button type="button" class="btn btn-data-view" data-view="list"
-                                    onclick="IAA.chart.switchDataView('dnu',{{ loop.index0 }},'list',this)">
-                                📋 列表展示
-                            </button>
-                        </div>
-                    </div>
-                    <!-- 数据表格（默认隐藏） -->
-                    <div id="dnuTableWrap_{{ loop.index0 }}" class="data-table-wrap" style="display: none;"></div>
-                    <!-- 图表容器 -->
-                    <div id="chartCanvasDnu_{{ loop.index0 }}Wrap" class="data-chart-wrap">
-                        <canvas id="chartCanvasDnu_{{ loop.index0 }}" height="300"></canvas>
-                    </div>
-                </div>
-                <!-- DAU 图表区域 -->
-                <div class="chart-container">
-                    <div class="chart-container__toolbar">
-                        <div class="chart-container__header">📊 DAU 曲线</div>
-                        <div class="data-view-toggle" role="group" aria-label="DAU 数据展示切换">
-                            <button type="button" class="btn btn-data-view active" data-view="chart"
-                                    onclick="IAA.chart.switchDataView('dau',{{ loop.index0 }},'chart',this)">
-                                📈 图表展示
-                            </button>
-                            <button type="button" class="btn btn-data-view" data-view="list"
-                                    onclick="IAA.chart.switchDataView('dau',{{ loop.index0 }},'list',this)">
-                                📋 列表展示
-                            </button>
-                        </div>
-                    </div>
-                    <!-- 数据表格（默认隐藏） -->
-                    <div id="dauTableWrap_{{ loop.index0 }}" class="data-table-wrap" style="display: none;"></div>
-                    <!-- 图表容器 -->
-                    <div id="chartCanvasDau_{{ loop.index0 }}Wrap" class="data-chart-wrap">
-                        <canvas id="chartCanvasDau_{{ loop.index0 }}" height="300"></canvas>
-                    </div>
-                </div>
-            </div>
+
+            <!-- 图表全局工具栏：日期范围 + 视角切换 -->
+            {{ chart_toolbar(loop.index0, 'tab_' ~ loop.index0) }}
+
+            <!-- DNU 图表 -->
+            {{ chart_container(
+                '📈 DNU 曲线', 'dnu', loop.index0,
+                'dnuTableWrap_' ~ loop.index0,
+                'chartCanvasDnu_' ~ loop.index0,
+                'chartCanvasDnu_' ~ loop.index0 ~ 'Wrap',
+                'DNU 数据展示切换'
+            ) }}
+
+            <!-- DAU 图表 -->
+            {{ chart_container(
+                '📊 DAU 曲线', 'dau', loop.index0,
+                'dauTableWrap_' ~ loop.index0,
+                'chartCanvasDau_' ~ loop.index0,
+                'chartCanvasDau_' ~ loop.index0 ~ 'Wrap',
+                'DAU 数据展示切换'
+            ) }}
         </div>
         {% endfor %}
     </div>
 </div>
 
-<!-- ==================== 全局汇总区域（独立容器） ==================== -->
+<!-- ==================== 全局汇总区域 ==================== -->
 <div class="total-section" id="totalSection" style="display:none;">
-    <div class="total-section__title">
-        🌍 汇总结果
-    </div>
+    <div class="total-section__title">🌍 汇总结果</div>
     <div class="total-section__body">
-        <div class="charts-dual-layout">
-            <!-- 汇总 DNU 图表区域 -->
-            <div class="chart-container">
-                <div class="chart-container__toolbar">
-                    <div class="chart-container__header">📈 DNU 汇总</div>
-                    <div class="data-view-toggle" role="group" aria-label="汇总 DNU 数据展示切换">
-                        <button type="button" class="btn btn-data-view active" data-view="chart"
-                                onclick="IAA.chart.switchDataView('totalDnu','total','chart',this)">
-                            📈 图表展示
-                        </button>
-                        <button type="button" class="btn btn-data-view" data-view="list"
-                                onclick="IAA.chart.switchDataView('totalDnu','total','list',this)">
-                            📋 列表展示
-                        </button>
-                    </div>
-                </div>
-                <div id="totalDnuTableWrap_total" class="data-table-wrap" style="display: none;"></div>
-                <div id="totalChartCanvasDnuWrap" class="data-chart-wrap">
-                    <canvas id="totalChartCanvasDnu" height="300"></canvas>
-                </div>
-            </div>
-            <!-- 汇总 DAU 图表区域 -->
-            <div class="chart-container">
-                <div class="chart-container__toolbar">
-                    <div class="chart-container__header">📊 DAU 汇总</div>
-                    <div class="data-view-toggle" role="group" aria-label="汇总 DAU 数据展示切换">
-                        <button type="button" class="btn btn-data-view active" data-view="chart"
-                                onclick="IAA.chart.switchDataView('totalDau','total','chart',this)">
-                            📈 图表展示
-                        </button>
-                        <button type="button" class="btn btn-data-view" data-view="list"
-                                onclick="IAA.chart.switchDataView('totalDau','total','list',this)">
-                            📋 列表展示
-                        </button>
-                    </div>
-                </div>
-                <div id="totalDauTableWrap_total" class="data-table-wrap" style="display: none;"></div>
-                <div id="totalChartCanvasDauWrap" class="data-chart-wrap">
-                    <canvas id="totalChartCanvasDau" height="300"></canvas>
-                </div>
-            </div>
-        </div>
+
+        <!-- 汇总图表全局工具栏 -->
+        {{ chart_toolbar('total', 'total', is_string=true) }}
+
+        <!-- 汇总 DNU 图表 -->
+        {{ chart_container(
+            '📈 DNU 汇总', 'totalDnu', 'total',
+            'totalDnuTableWrap_total',
+            'totalChartCanvasDnu',
+            'totalChartCanvasDnuWrap',
+            '汇总 DNU 数据展示切换',
+            is_string=true
+        ) }}
+
+        <!-- 汇总 DAU 图表 -->
+        {{ chart_container(
+            '📊 DAU 汇总', 'totalDau', 'total',
+            'totalDauTableWrap_total',
+            'totalChartCanvasDau',
+            'totalChartCanvasDauWrap',
+            '汇总 DAU 数据展示切换',
+            is_string=true
+        ) }}
     </div>
 </div>
 

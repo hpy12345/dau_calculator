@@ -59,13 +59,72 @@ def _series_to_day_value_pairs(series):
     返回:
         list[dict]: 格式为 [{"day": 1, "value": 1500.0}, ...] 的对象数组
     """
-    result = []
-    for day, value in series.items():
-        result.append({
-            'day': int(day),
-            'value': round(float(value), 2)
-        })
-    return result
+    return [
+        {'day': int(day), 'value': round(float(value), 2)}
+        for day, value in series.items()
+    ]
+
+
+def _build_dnu_array(dnu_series, total_days):
+    """
+    根据 DNU Series 构建长度为 total_days 的 NumPy 数组
+    
+    参数:
+        dnu_series (pd.Series): 以天数为索引的 DNU 数据
+        total_days (int): 数组总长度
+    
+    返回:
+        np.ndarray: 投资期内填入 DNU 值，其余天为 0 的数组
+    """
+    dnu_array = np.zeros(total_days, dtype=float)
+    for day, value in dnu_series.items():
+        idx = int(day) - 1  # 天数从1开始，数组索引从0开始
+        if 0 <= idx < total_days:
+            dnu_array[idx] = value
+    return dnu_array
+
+
+def _build_retention_array(ret_series):
+    """
+    根据留存率 Series 构建留存率向量
+    
+    参数:
+        ret_series (pd.Series): 以天数为索引的留存率数据
+    
+    返回:
+        np.ndarray: ret_vec[0]=1.0（当天100%留存），ret_vec[i]=第i天留存率
+    """
+    if ret_series.empty:
+        # 若无留存率数据，默认只有当天活跃
+        return np.array([1.0])
+
+    max_ret_day = int(ret_series.index.max())
+    retention_array = np.zeros(max_ret_day + 1, dtype=float)
+    retention_array[0] = 1.0  # 第0天（当天）留存率 = 100%
+    for day, value in ret_series.items():
+        idx = int(day)
+        if 0 < idx <= max_ret_day:
+            retention_array[idx] = value
+    return retention_array
+
+
+def _convolve_and_format(dnu_array, retention_array, total_days):
+    """
+    执行卷积运算并将结果格式化为天数-数据对
+    
+    参数:
+        dnu_array (np.ndarray): DNU 数组
+        retention_array (np.ndarray): 留存率向量
+        total_days (int): 截取的有效天数
+    
+    返回:
+        list[dict]: DAU 计算结果，格式 [{"day": 1, "value": ...}, ...]
+    """
+    dau_full = np.convolve(dnu_array, retention_array, mode='full')
+    dau_array = dau_full[:total_days]
+    dau_series = pd.Series(dau_array, index=range(1, total_days + 1))
+    dau_series.index.name = 'day'
+    return _series_to_day_value_pairs(dau_series)
 
 
 def calculate_dau(dnu_data, retention_data, total_days=None):
@@ -111,51 +170,77 @@ def calculate_dau(dnu_data, retention_data, total_days=None):
         return []
 
     # ========== 数据预处理 ==========
-    # 获取投资期天数（DNU 数据覆盖的最大天数）
     period_days = int(dnu_series.index.max())
-
-    # 获取留存率数据覆盖的最大天数
     max_ret_day = int(ret_series.index.max()) if not ret_series.empty else 0
 
     # 确定总计算天数：投资期 + 留存衰减期
     if total_days is None:
-        # 默认计算到留存率数据能覆盖的完整衰减周期
         total_days = period_days + max_ret_day
     total_days = max(total_days, period_days)  # 至少覆盖投资期
 
-    # ========== 构建 DNU 数组 ==========
-    # 长度为 total_days，投资期内填入 DNU 值，其余天为 0
-    dnu_array = np.zeros(total_days, dtype=float)
-    for day, value in dnu_series.items():
-        idx = int(day) - 1  # 天数从1开始，数组索引从0开始
-        if 0 <= idx < total_days:
-            dnu_array[idx] = value
+    # ========== 构建数组并执行卷积 ==========
+    dnu_array = _build_dnu_array(dnu_series, total_days)
+    retention_array = _build_retention_array(ret_series)
 
-    # ========== 构建留存率向量 ==========
-    # ret_vec[0] = 1.0（第0天留存率 = 100%，当天新增用户当天即为活跃用户）
-    # ret_vec[i] = 第 i 天的留存率
-    if ret_series.empty:
-        # 若无留存率数据，默认只有当天活跃
-        retention_array = np.array([1.0])
-    else:
-        retention_array = np.zeros(max_ret_day + 1, dtype=float)
-        retention_array[0] = 1.0  # 第0天（当天）留存率 = 100%
-        for day, value in ret_series.items():
-            idx = int(day)
-            if 0 < idx <= max_ret_day:
-                retention_array[idx] = value
+    return _convolve_and_format(dnu_array, retention_array, total_days)
 
-    # ========== 核心卷积运算 ==========
-    # np.convolve 计算两个序列的离散卷积
-    # mode='full' 返回完整卷积结果，长度为 len(dnu) + len(ret) - 1
-    dau_full = np.convolve(dnu_array, retention_array, mode='full')
 
-    # 只取前 total_days 天的结果
-    dau_array = dau_full[:total_days]
+def calculate_dau_segmented(segments, total_days=None):
+    """
+    分段 DAU 计算函数：每个 DNU 时间段可使用各自专属的留存率曲线
+    
+    参数:
+        segments (list[dict]): 时间段列表，每项包含:
+            - dnu_data (list[dict]): 该时间段的 DNU 数据 [{"day": 1, "value": 1500}, ...]
+            - retention_data (list[dict]): 该时间段使用的留存率数据 [{"day": 1, "value": 0.45}, ...]
+        total_days (int|None): 总计算天数。若不指定，自动推算。
+    
+    返回:
+        list[dict]: DAU 计算结果，格式 [{"day": 1, "value": ...}, ...]
+    
+    算法说明:
+        利用卷积运算的线性叠加性：
+        DAU(t) = Σ_seg conv(DNU_seg, Retention_seg)(t)
+        
+        对每个时间段，用该段的 DNU 和对应的留存率曲线分别做卷积，
+        然后将所有时间段的卷积结果按天数对齐后累加。
+    """
+    if not segments:
+        return []
 
-    # ========== 结果格式化 ==========
-    # 转换为 Pandas Series 再输出为天数-数据对格式
-    dau_series = pd.Series(dau_array, index=range(1, total_days + 1))
+    # 第一步：解析所有时间段数据，同时确定总计算天数
+    parsed_segments = []
+    global_max_dnu_day = 0
+    global_max_ret_day = 0
+
+    for seg in segments:
+        dnu_s = _parse_day_value_pairs(seg.get('dnu_data', []))
+        ret_s = _parse_day_value_pairs(seg.get('retention_data', []))
+        if dnu_s.empty:
+            continue
+        global_max_dnu_day = max(global_max_dnu_day, int(dnu_s.index.max()))
+        if not ret_s.empty:
+            global_max_ret_day = max(global_max_ret_day, int(ret_s.index.max()))
+        parsed_segments.append((dnu_s, ret_s))
+
+    if not parsed_segments:
+        return []
+
+    if total_days is None:
+        total_days = global_max_dnu_day + global_max_ret_day
+    total_days = max(total_days, global_max_dnu_day)
+
+    # 第二步：对每个时间段分别做卷积，然后累加
+    total_dau = np.zeros(total_days, dtype=float)
+
+    for dnu_series, ret_series in parsed_segments:
+        seg_dnu_array = _build_dnu_array(dnu_series, total_days)
+        seg_retention = _build_retention_array(ret_series)
+        seg_dau = np.convolve(seg_dnu_array, seg_retention, mode='full')[:total_days]
+        total_dau += seg_dau
+
+    # 结果格式化
+    dau_series = pd.Series(total_dau, index=range(1, total_days + 1))
     dau_series.index.name = 'day'
 
     return _series_to_day_value_pairs(dau_series)

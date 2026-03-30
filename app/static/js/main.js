@@ -80,16 +80,19 @@
             toast.textContent = message;
             document.body.appendChild(toast);
 
-            setTimeout(function () {
-                toast.style.opacity = '0';
-                toast.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
-                toast.style.transform = 'translate(-50%, -50%) scale(0.9)';
+            // 使用 requestAnimationFrame 确保 DOM 渲染完成后再设置淡出定时器
+            requestAnimationFrame(function () {
                 setTimeout(function () {
-                    if (toast.parentNode) {
-                        toast.parentNode.removeChild(toast);
-                    }
-                }, 300);
-            }, d);
+                    toast.style.opacity = '0';
+                    toast.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+                    toast.style.transform = 'translate(-50%, -50%) scale(0.9)';
+                    setTimeout(function () {
+                        if (toast.parentNode) {
+                            toast.parentNode.removeChild(toast);
+                        }
+                    }, 300);
+                }, d);
+            });
         }
 
         /**

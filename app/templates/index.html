@@ -10,7 +10,7 @@
 </div>
 
 <!-- 新建项目区域 -->
-<div class="create-project">
+<section class="create-project">
     <div class="create-project__form" id="createForm">
         <input type="text" class="form-input" id="projectNameInput"
                placeholder="输入新项目名称..." maxlength="50">
@@ -18,11 +18,11 @@
             ➕ 新建项目
         </button>
     </div>
-</div>
+</section>
 
 <!-- 项目列表区域 -->
-<section>
-    <h2 style="font-size:16px; font-weight:600; color:var(--gray-800); margin-bottom:12px;">
+<section class="project-list-section">
+    <h2 class="project-list-section__title">
         历史项目 ({{ projects|length }})
     </h2>
 
@@ -56,8 +56,8 @@
 {% block scripts %}
 <script>
 /**
- * 首页交互逻辑（ES5 IIFE 风格）
- * 不依赖任何框架，使用原生 JS + fetch API 与后端通信
+ * 首页交互逻辑
+ * 使用 IIFE 封装，通过 fetch API 与后端通信
  */
 ;(function () {
     'use strict';
@@ -68,7 +68,7 @@
     var input = document.getElementById('projectNameInput');
     if (input) {
         utils.on(input, 'keydown', function (e) {
-            if (e.key === 'Enter' || e.keyCode === 13) {
+            if (e.key === 'Enter') {
                 createProject();
             }
         });
@@ -76,8 +76,7 @@
 
     /**
      * 创建新项目
-     * 通过 fetch POST JSON 到后端 API，成功后重定向到工作区
-     * 这是传统前后端交互的典型模式：前端收集数据 -> AJAX提交 -> 根据响应跳转
+     * POST 项目名称到后端，成功后重定向到工作区
      */
     window.createProject = function () {
         var nameInput = document.getElementById('projectNameInput');
@@ -111,16 +110,12 @@
         });
     };
 
-    /**
-     * 打开已有项目 - 携带 project_id 跳转到工作区
-     */
+    /** 打开已有项目，跳转到对应工作区 */
     window.openProject = function (projectId) {
         window.location.href = '/workspace/' + projectId;
     };
 
-    /**
-     * 删除项目
-     */
+    /** 删除项目，确认后调用后端 API 并刷新页面 */
     window.deleteProject = function (projectId, projectName) {
         if (!confirm('确定要删除项目「' + projectName + '」吗？此操作不可恢复。')) {
             return;

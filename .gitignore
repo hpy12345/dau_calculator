@@ -1,15 +1,14 @@
-# 忽略所有文件和目录
-/*
+# 虚拟环境
+.venv/
+dau/
 
-# 保留 dnu-dau-calculator 目录
-!/dnu-dau-calculator/
+# IDE 配置
+.idea/
 
-# 保留 .gitignore 自身
-!.gitignore
+# Python 缓存
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
 
-# dnu-dau-calculator 内部的忽略规则
-dnu-dau-calculator/__pycache__/
-dnu-dau-calculator/**/__pycache__/
-dnu-dau-calculator/**/*.pyc
-dnu-dau-calculator/**/*.pyo
-dnu-dau-calculator/data/projects/
+

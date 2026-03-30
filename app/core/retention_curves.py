@@ -35,9 +35,7 @@ _CURVES_FILE = os.path.join(
 
 def _ensure_file():
     """确保数据文件及其目录存在"""
-    dir_path = os.path.dirname(_CURVES_FILE)
-    if not os.path.exists(dir_path):
-        os.makedirs(dir_path, exist_ok=True)
+    os.makedirs(os.path.dirname(_CURVES_FILE), exist_ok=True)
     if not os.path.exists(_CURVES_FILE):
         with open(_CURVES_FILE, 'w', encoding='utf-8') as f:
             json.dump({'curves': []}, f, ensure_ascii=False, indent=2)
@@ -69,15 +67,16 @@ def list_curves():
         list[dict]: 曲线摘要列表，每项包含 id, name, data_count, created_at, updated_at
     """
     curves = _load_all()
-    result = []
-    for c in curves:
-        result.append({
+    result = [
+        {
             'id': c.get('id', ''),
             'name': c.get('name', ''),
             'data_count': len(c.get('data', [])),
             'created_at': c.get('created_at', ''),
             'updated_at': c.get('updated_at', '')
-        })
+        }
+        for c in curves
+    ]
     # 按更新时间倒序
     result.sort(key=lambda x: x.get('updated_at', ''), reverse=True)
     return result
@@ -112,10 +111,7 @@ def check_name_exists(name, exclude_id=None):
         bool: 名称已存在返回 True
     """
     curves = _load_all()
-    for c in curves:
-        if c.get('name') == name and c.get('id') != exclude_id:
-            return True
-    return False
+    return any(c.get('name') == name and c.get('id') != exclude_id for c in curves)
 
 
 def save_curve(name, data, curve_id=None):
@@ -152,21 +148,19 @@ def save_curve(name, data, curve_id=None):
                 c['updated_at'] = now
                 _save_all(curves)
                 return c
-        # 未找到则新建
-        curve_id = None
+        # 指定的 curve_id 未找到，回退到新建逻辑
 
-    if not curve_id:
-        # 新建曲线
-        new_curve = {
-            'id': uuid.uuid4().hex[:12],
-            'name': name,
-            'data': data,
-            'created_at': now,
-            'updated_at': now
-        }
-        curves.append(new_curve)
-        _save_all(curves)
-        return new_curve
+    # 新建曲线
+    new_curve = {
+        'id': uuid.uuid4().hex[:12],
+        'name': name,
+        'data': data,
+        'created_at': now,
+        'updated_at': now
+    }
+    curves.append(new_curve)
+    _save_all(curves)
+    return new_curve
 
 
 def delete_curve(curve_id):

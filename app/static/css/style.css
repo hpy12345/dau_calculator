@@ -9,7 +9,6 @@
     --primary-blue: #1a73e8;
     --primary-blue-hover: #1557b0;
     --primary-blue-light: #e8f0fe;
-    --primary-blue-bg: #f0f6ff;
     --white: #ffffff;
     --gray-50: #f8f9fa;
     --gray-100: #f1f3f4;
@@ -279,6 +278,14 @@ a:hover {
 
 .create-project__form .form-input {
     flex: 1;
+}
+
+/* 项目列表区域标题 */
+.project-list-section__title {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--gray-800);
+    margin-bottom: 12px;
 }
 
 /* 项目列表 */
@@ -823,8 +830,8 @@ a:hover {
 }
 
 .btn-data-view {
-    padding: 6px 16px;
-    font-size: 13px;
+    padding: 4px 12px;
+    font-size: 12px;
     font-weight: 500;
     border: none;
     border-radius: 4px;
@@ -952,38 +959,10 @@ a:hover {
     margin-bottom: 0;
 }
 
-/* 数据视图切换按钮组（图表/列表切换） */
+/* 图表容器内的视图切换按钮组：缩小内边距 */
 .chart-container__toolbar .data-view-toggle {
-    display: flex;
-    gap: 4px;
-    background: var(--gray-100);
-    border-radius: var(--radius-sm);
     padding: 2px;
     margin-bottom: 0;
-}
-
-.btn-data-view {
-    padding: 4px 12px;
-    font-size: 12px;
-    font-weight: 500;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-    background: transparent;
-    color: var(--gray-600);
-    transition: var(--transition);
-    white-space: nowrap;
-}
-
-.btn-data-view:hover {
-    color: var(--gray-800);
-}
-
-.btn-data-view.active {
-    background: var(--white);
-    color: var(--primary-blue);
-    box-shadow: var(--shadow-sm);
-    font-weight: 600;
 }
 
 .chart-container canvas {
@@ -1181,6 +1160,83 @@ a:hover {
     white-space: nowrap;
 }
 
+/* DNU 时间段 - 留存率曲线选择器（与其他字段同行对齐） */
+.dnu-segment__field--curve {
+    min-width: 280px;
+    flex: 1 1 auto;
+    /* 覆盖父类 .dnu-segment__field 的 column 方向，改为 row + wrap */
+    display: flex !important;
+    flex-direction: row !important;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 8px;
+}
+
+.dnu-segment__field--curve label {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--gray-600);
+    white-space: nowrap;
+    width: 100%;  /* label 独占一行，强制换行 */
+}
+
+.dnu-segment__field--curve .form-input {
+    width: 180px;
+    flex-shrink: 0;
+    padding: 6px 10px;
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.dnu-seg-curve-hint {
+    font-size: 11px;
+    color: var(--gray-500);
+    white-space: nowrap;
+    line-height: 32px;  /* 与下拉框高度对齐 */
+}
+
+.dnu-seg-curve-hint--selected {
+    color: var(--success);
+    font-weight: 500;
+}
+
+/* 曲线选择器 - 无效状态（无可用曲线） */
+.dnu-seg-curve-hint--invalid {
+    color: var(--danger);
+    font-weight: 500;
+}
+
+.dnu-segment--invalid {
+    border-color: var(--danger);
+    background: #fef2f2;
+}
+
+.dnu-segment--invalid:hover {
+    border-color: var(--danger-hover);
+}
+
+/* 曲线选择器 - 无可用曲线时的引导提示 */
+.dnu-seg-curve-guide {
+    font-size: 11px;
+    color: var(--gray-500);
+    margin-top: 4px;
+    padding: 6px 10px;
+    background: #fffbe6;
+    border: 1px solid #ffe58f;
+    border-radius: 4px;
+    line-height: 1.5;
+}
+
+.dnu-seg-curve-guide a {
+    color: var(--primary-blue);
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+.dnu-seg-curve-guide a:hover {
+    color: var(--primary-blue-hover);
+}
+
 /* DNU 数据预览区域 */
 .dnu-preview-wrapper {
     margin-top: 12px;
@@ -1188,66 +1244,7 @@ a:hover {
 
 /* ==================== 响应式适配 ==================== */
 
-@media (max-width: 768px) {
-    .app-main {
-        padding: 16px;
-    }
-
-    .create-project__form {
-        flex-direction: column;
-    }
-
-    .tabs-bar {
-        padding: 0 4px;
-    }
-
-    .tab-item {
-        padding: 8px 14px;
-        font-size: 13px;
-    }
-
-    .tab-panel {
-        padding: 16px;
-    }
-
-    .charts-dual-layout {
-        grid-template-columns: 1fr;
-    }
-
-    .result-tabs-bar {
-        padding: 0 4px;
-    }
-
-    .result-tab-item {
-        padding: 8px 14px;
-        font-size: 13px;
-    }
-
-    .result-tab-panel {
-        padding: 16px;
-    }
-
-    .dnu-segment__row {
-        flex-direction: column;
-        align-items: stretch;
-    }
-
-    .dnu-segment__field {
-        min-width: auto;
-    }
-
-    .dnu-segment__field .form-input {
-        width: 100%;
-    }
-
-    .dnu-segment__field select.form-input {
-        width: 100%;
-    }
-
-    .dnu-segment__actions {
-        align-self: flex-end;
-    }
-}
+/* 注意：所有 max-width: 768px 的响应式规则统一在文件末尾的媒体查询块中管理 */
 
 /* ==================== 留存率左右布局 ==================== */
 
@@ -1420,14 +1417,210 @@ a:hover {
     background: #e6f4ea;
 }
 
-/* ==================== 响应式：留存率布局 ==================== */
+/* ==================== 图表全局工具栏（日期范围 + 视角切换） ==================== */
+
+.chart-global-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+    padding: 12px 16px;
+    margin-bottom: 16px;
+    background: var(--gray-50);
+    border: 1px solid var(--gray-200);
+    border-radius: var(--radius-sm);
+}
+
+.chart-global-toolbar__left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.chart-global-toolbar__right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.chart-toolbar-label {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--gray-700);
+    white-space: nowrap;
+}
+
+.chart-toolbar-separator {
+    font-size: 13px;
+    color: var(--gray-500);
+    padding: 0 2px;
+}
+
+.chart-date-input {
+    width: 150px !important;
+    padding: 6px 10px;
+    font-size: 13px;
+}
+
+.chart-toolbar-btn {
+    padding: 6px 14px;
+    font-size: 12px;
+}
+
+/* 日/月视角切换按钮组 */
+.chart-view-toggle {
+    display: flex;
+    gap: 4px;
+    background: var(--gray-100);
+    border-radius: var(--radius-sm);
+    padding: 3px;
+}
+
+.btn-chart-view {
+    padding: 6px 14px;
+    font-size: 13px;
+    font-weight: 500;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    background: transparent;
+    color: var(--gray-600);
+    transition: var(--transition);
+    white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.btn-chart-view:hover {
+    color: var(--gray-800);
+}
+
+.btn-chart-view.active {
+    background: var(--white);
+    color: var(--primary-blue);
+    box-shadow: var(--shadow-sm);
+    font-weight: 600;
+}
+
+/* 图表容器全宽模式（DNU/DAU 各占一行） */
+.chart-container--full {
+    width: 100%;
+    height: 400px;
+}
+
+.chart-container--full .data-chart-wrap {
+    flex: 1;
+    min-height: 0;
+    position: relative;
+    overflow: hidden;
+}
+
+.chart-container--full canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100% !important;
+    height: 100% !important;
+}
+
+/* ==================== 响应式适配（统一管理所有断点规则） ==================== */
 
 @media (max-width: 768px) {
+    /* 全局布局 */
+    .app-main {
+        padding: 16px;
+    }
+
+    .create-project__form {
+        flex-direction: column;
+    }
+
+    /* 标签栏 */
+    .tabs-bar {
+        padding: 0 4px;
+    }
+
+    .tab-item {
+        padding: 8px 14px;
+        font-size: 13px;
+    }
+
+    .tab-panel {
+        padding: 16px;
+    }
+
+    /* 图表布局 */
+    .charts-dual-layout {
+        grid-template-columns: 1fr;
+    }
+
+    /* 分析结果标签栏 */
+    .result-tabs-bar {
+        padding: 0 4px;
+    }
+
+    .result-tab-item {
+        padding: 8px 14px;
+        font-size: 13px;
+    }
+
+    .result-tab-panel {
+        padding: 16px;
+    }
+
+    /* DNU 时间段 */
+    .dnu-segment__row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .dnu-segment__field {
+        min-width: auto;
+    }
+
+    .dnu-segment__field .form-input,
+    .dnu-segment__field select.form-input {
+        width: 100%;
+    }
+
+    .dnu-segment__field--curve .form-input {
+        width: auto;
+        flex: 1;
+        min-width: 120px;
+    }
+
+    .dnu-segment__actions {
+        align-self: flex-end;
+    }
+
+    /* 留存率布局 */
     .retention-layout {
         flex-direction: column;
     }
 
     .retention-layout__right {
         width: 100%;
+    }
+
+    /* 图表工具栏 */
+    .chart-global-toolbar {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .chart-global-toolbar__left,
+    .chart-global-toolbar__right {
+        width: 100%;
+    }
+
+    .chart-global-toolbar__right {
+        justify-content: flex-start;
+    }
+
+    .chart-date-input {
+        width: 130px !important;
     }
 }

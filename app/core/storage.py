@@ -19,24 +19,31 @@ import pickle
 from datetime import datetime
 
 
+# 时间格式常量，统一全模块的时间序列化格式
+_DATETIME_FMT = '%Y-%m-%d %H:%M:%S'
+
 # 数据存储根目录（相对于项目根目录）
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'data', 'projects')
 
 
+def _now_str():
+    """获取当前时间的格式化字符串"""
+    return datetime.now().strftime(_DATETIME_FMT)
+
+
 def _ensure_data_dir():
     """确保数据存储目录存在，不存在则自动创建"""
-    if not os.path.exists(DATA_DIR):
-        os.makedirs(DATA_DIR, exist_ok=True)
+    os.makedirs(DATA_DIR, exist_ok=True)
 
 
 def _project_json_path(project_id):
     """获取项目 JSON 文件的完整路径"""
-    return os.path.join(DATA_DIR, '{}.json'.format(project_id))
+    return os.path.join(DATA_DIR, f'{project_id}.json')
 
 
 def _project_pickle_path(project_id):
     """获取项目 Pickle 缓存文件的完整路径"""
-    return os.path.join(DATA_DIR, '{}_cache.pkl'.format(project_id))
+    return os.path.join(DATA_DIR, f'{project_id}_cache.pkl')
 
 
 def create_project(project_name):
@@ -57,7 +64,7 @@ def create_project(project_name):
     _ensure_data_dir()
 
     project_id = uuid.uuid4().hex[:12]  # 取前12位作为短ID
-    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    now = _now_str()
 
     # 项目数据结构定义
     project_data = {
@@ -95,14 +102,17 @@ def load_project(project_id):
         project_id (str): 项目唯一标识
     
     返回:
-        dict: 项目数据字典，若项目不存在则返回 None
+        dict: 项目数据字典，若项目不存在或数据损坏则返回 None
     """
     json_path = _project_json_path(project_id)
     if not os.path.exists(json_path):
         return None
 
-    with open(json_path, 'r', encoding='utf-8') as f:
-        return json.load(f)
+    try:
+        with open(json_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except (json.JSONDecodeError, IOError):
+        return None
 
 
 def save_project(project_data):
@@ -123,24 +133,18 @@ def save_project(project_data):
     if not project_id:
         raise ValueError('项目数据缺少 project_id 字段')
 
-    # 读取原有数据，保留 created_at 等元数据字段
-    json_path = _project_json_path(project_id)
-    if os.path.exists(json_path):
-        try:
-            with open(json_path, 'r', encoding='utf-8') as f:
-                existing_data = json.load(f)
-            # 如果前端未传递 created_at，从原有数据中恢复
-            if 'created_at' not in project_data and 'created_at' in existing_data:
-                project_data['created_at'] = existing_data['created_at']
-        except (json.JSONDecodeError, IOError):
-            pass
-
-    # 如果仍然没有 created_at（新项目或数据损坏），使用当前时间
+    # 若前端未传递 created_at，尝试从已有文件中恢复
     if 'created_at' not in project_data:
-        project_data['created_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        existing_data = load_project(project_id)
+        if existing_data and 'created_at' in existing_data:
+            project_data['created_at'] = existing_data['created_at']
+        else:
+            # 新项目或数据损坏，使用当前时间
+            project_data['created_at'] = _now_str()
 
-    project_data['updated_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    project_data['updated_at'] = _now_str()
 
+    json_path = _project_json_path(project_id)
     with open(json_path, 'w', encoding='utf-8') as f:
         json.dump(project_data, f, ensure_ascii=False, indent=2)
 
@@ -160,21 +164,20 @@ def list_projects():
 
     projects = []
     for filename in os.listdir(DATA_DIR):
-        if filename.endswith('.json'):
-            filepath = os.path.join(DATA_DIR, filename)
-            try:
-                with open(filepath, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                projects.append({
-                    'project_id': data.get('project_id', ''),
-                    'project_name': data.get('project_name', '未命名项目'),
-                    'created_at': data.get('created_at', ''),
-                    'updated_at': data.get('updated_at', ''),
-                    'tab_count': len(data.get('tabs', []))
-                })
-            except (json.JSONDecodeError, IOError):
-                # 跳过损坏的文件
-                continue
+        if not filename.endswith('.json'):
+            continue
+        # 从文件名提取 project_id，复用 load_project 避免重复的文件读取逻辑
+        project_id = filename[:-5]  # 去掉 '.json' 后缀
+        data = load_project(project_id)
+        if data is None:
+            continue
+        projects.append({
+            'project_id': data.get('project_id', ''),
+            'project_name': data.get('project_name', '未命名项目'),
+            'created_at': data.get('created_at', ''),
+            'updated_at': data.get('updated_at', ''),
+            'tab_count': len(data.get('tabs', []))
+        })
 
     # 按更新时间倒序排列
     projects.sort(key=lambda x: x.get('updated_at', ''), reverse=True)
@@ -230,11 +233,14 @@ def load_dataframe_cache(project_id):
         project_id (str): 项目唯一标识
     
     返回:
-        DataFrame 或 None: 缓存的 DataFrame，不存在则返回 None
+        DataFrame 或 None: 缓存的 DataFrame，不存在或数据损坏则返回 None
     """
     pkl_path = _project_pickle_path(project_id)
     if not os.path.exists(pkl_path):
         return None
 
-    with open(pkl_path, 'rb') as f:
-        return pickle.load(f)
+    try:
+        with open(pkl_path, 'rb') as f:
+            return pickle.load(f)
+    except (pickle.UnpicklingError, IOError, EOFError):
+        return None

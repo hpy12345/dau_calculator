@@ -3,16 +3,25 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="DNU-DAU 数据看板 - 基于新增用户和留存率数据，智能推演分区域及全球的活跃趋势">
     <title>{% block title %}DNU-DAU 数据看板{% endblock %}</title>
+
     <!-- 全局样式 -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-    <!-- Chart.js 4.x CDN -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
-    <!-- SheetJS (XLSX) CDN -->
-    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+    <!-- 第三方库：Chart.js 图表渲染 -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <!-- 第三方库：SheetJS Excel 解析 -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+
     {% block head_extra %}{% endblock %}
 </head>
 <body>
+    <!-- 浏览器禁用 JS 时的降级提示 -->
+    <noscript>
+        <p style="text-align:center;padding:2rem;color:#c00;">本应用需要启用 JavaScript 才能正常运行，请在浏览器设置中开启。</p>
+    </noscript>
+
     <!-- 全局顶部品牌栏 -->
     <header class="app-header">
         <div class="app-header__brand">
@@ -30,10 +39,10 @@
 
     <!-- 页脚 -->
     <footer class="app-footer">
-        <p>DNU-DAU Calculator &copy; 2025 | Powered by Flask + NumPy + Chart.js</p>
+        <p>DNU-DAU Calculator &copy; {{ current_year | default('2025') }} | Powered by Flask + NumPy + Chart.js</p>
     </footer>
 
-    <!-- 全局命名空间 JS -->
+    <!-- 全局公共脚本 -->
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
     {% block scripts %}{% endblock %}
 </body>

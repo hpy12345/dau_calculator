@@ -61,15 +61,26 @@
 
     // ==================== 日期辅助函数 ====================
 
+    /** 每日毫秒数常量，避免重复计算 */
+    var MS_PER_DAY = 1000 * 60 * 60 * 24;
+
+    /**
+     * 将 Date 对象格式化为 YYYY-MM-DD 字符串
+     * @param {Date} d - Date 对象
+     * @returns {string} YYYY-MM-DD 格式的日期
+     */
+    function _formatDate(d) {
+        return d.getFullYear() + '-' +
+            String(d.getMonth() + 1).padStart(2, '0') + '-' +
+            String(d.getDate()).padStart(2, '0');
+    }
+
     /**
      * 获取今天的日期字符串（YYYY-MM-DD 格式）
      * @returns {string}
      */
     function _getTodayStr() {
-        var d = new Date();
-        return d.getFullYear() + '-' +
-            String(d.getMonth() + 1).padStart(2, '0') + '-' +
-            String(d.getDate()).padStart(2, '0');
+        return _formatDate(new Date());
     }
 
     /**
@@ -81,32 +92,7 @@
     function _offsetDateStr(dateStr, offsetDays) {
         var d = new Date(dateStr + 'T00:00:00');
         d.setDate(d.getDate() + offsetDays);
-        return d.getFullYear() + '-' +
-            String(d.getMonth() + 1).padStart(2, '0') + '-' +
-            String(d.getDate()).padStart(2, '0');
-    }
-
-    /**
-     * 计算两个日期之间的天数差（含首尾）
-     * @param {string} startStr - 起始日期 YYYY-MM-DD
-     * @param {string} endStr - 结束日期 YYYY-MM-DD
-     * @returns {number} 天数差（含首尾，最小为1）
-     */
-    function _daysBetween(startStr, endStr) {
-        var s = new Date(startStr + 'T00:00:00');
-        var e = new Date(endStr + 'T00:00:00');
-        var diff = Math.round((e - s) / (1000 * 60 * 60 * 24));
-        return Math.max(diff + 1, 1); // 含首尾
-    }
-
-    /**
-     * 将天数序号转换为日期字符串（基于基准日期）
-     * @param {number} dayNum - 天数序号（从1开始）
-     * @param {string} baseDate - 基准日期 YYYY-MM-DD（day=1 对应的日期）
-     * @returns {string} YYYY-MM-DD 格式的日期
-     */
-    function _dayNumToDateStr(dayNum, baseDate) {
-        return _offsetDateStr(baseDate, dayNum - 1);
+        return _formatDate(d);
     }
 
     /**
@@ -157,8 +143,7 @@
                 _renderImportPreview('retention', i, tab.retention_data);
                 // 自动切换到导入模式
                 switchInputMode('retention', i, INPUT_MODE.IMPORT);
-                // 显示保存曲线按钮
-                _showSaveCurveBar(i);
+                // 注：保存曲线按钮已集成到导入预览的操作栏中，随预览一起显示
             }
         }
     }
@@ -192,8 +177,8 @@
         var baseDate = _getTodayStr();
         for (var i = 0; i < segments.length; i++) {
             var seg = segments[i];
-            seg.startDate = _dayNumToDateStr(seg.start, baseDate);
-            seg.endDate = _dayNumToDateStr(seg.end, baseDate);
+            seg.startDate = _offsetDateStr(baseDate, seg.start - 1);
+            seg.endDate = _offsetDateStr(baseDate, seg.end - 1);
             _addDnuSegmentDOM(tabIndex, container, seg);
         }
     }
@@ -216,7 +201,7 @@
         var lastValue = sortedData[sortedData.length - 1].value;
 
         var allSame = true;
-         for (var i = 1; i < sortedData.length; i++) {
+        for (var i = 1; i < sortedData.length; i++) {
             if (sortedData[i].value !== firstValue) {
                 allSame = false;
                 break;
@@ -305,12 +290,291 @@
             '    <label>结束值</label>' +
             '    <input type="number" class="form-input dnu-seg-end-value" value="' + endValue + '" min="0" step="1" placeholder="如 1000">' +
             '  </div>' +
+            '  <div class="dnu-segment__field dnu-segment__field--curve">' +
+            '    <label>📉 留存率曲线</label>' +
+            '    <select class="form-input dnu-seg-curve" onchange="IAA.workspace.onSegmentCurveChange(this)">' +
+            '      <option value="" disabled>无可用曲线</option>' +
+            '    </select>' +
+            '    <span class="dnu-seg-curve-hint dnu-seg-curve-hint--invalid">⚠️ 请先在左侧保存留存率曲线</span>' +
+            '  </div>' +
             '  <div class="dnu-segment__actions">' +
 '          <button class="btn btn-danger btn-sm" onclick="IAA.workspace.removeDnuSegment(this)" title="删除此时间段">删除</button>' +
             '  </div>' +
             '</div>';
 
         container.appendChild(div);
+
+        // 刷新该时间段的曲线下拉列表
+        _refreshSegmentCurveSelect(div.querySelector('.dnu-seg-curve'));
+    }
+
+    /**
+     * 已缓存的曲线列表（供时间段曲线选择器使用）
+     */
+    var _cachedCurvesList = [];
+
+    /**
+     * 刷新单个时间段曲线选择器的选项
+     * @param {Element} selectEl - 曲线选择下拉框元素
+     */
+    function _refreshSegmentCurveSelect(selectEl) {
+        if (!selectEl) return;
+        var currentValue = selectEl.value;
+        var segment = selectEl.closest('.dnu-segment');
+        var hint = selectEl.parentNode.querySelector('.dnu-seg-curve-hint');
+
+        if (_cachedCurvesList.length === 0) {
+            // 曲线库为空：显示"无可用曲线"禁用选项
+            selectEl.innerHTML = '<option value="" disabled selected>无可用曲线</option>';
+            if (hint) {
+                hint.textContent = '⚠️ 请先在左侧保存留存率曲线';
+                hint.className = 'dnu-seg-curve-hint dnu-seg-curve-hint--invalid';
+            }
+            if (segment) segment.classList.add('dnu-segment--invalid');
+        } else {
+            // 有曲线可用：构建选项列表
+            selectEl.innerHTML = '';
+            for (var i = 0; i < _cachedCurvesList.length; i++) {
+                var c = _cachedCurvesList[i];
+                var opt = document.createElement('option');
+                opt.value = c.id;
+                opt.textContent = c.name + '（' + c.data_count + ' 天）';
+                selectEl.appendChild(opt);
+            }
+
+            // 恢复之前的选中值，若之前的值不存在则默认选中第一条
+            var restored = false;
+            if (currentValue) {
+                for (var j = 0; j < selectEl.options.length; j++) {
+                    if (selectEl.options[j].value === currentValue) {
+                        selectEl.value = currentValue;
+                        restored = true;
+                        break;
+                    }
+                }
+            }
+            if (!restored) {
+                selectEl.value = _cachedCurvesList[0].id;
+            }
+
+            // 更新提示文字
+            var selectedOption = selectEl.options[selectEl.selectedIndex];
+            if (hint && selectedOption) {
+                hint.textContent = '✅ 已选择：' + selectedOption.textContent;
+                hint.className = 'dnu-seg-curve-hint dnu-seg-curve-hint--selected';
+            }
+            if (segment) segment.classList.remove('dnu-segment--invalid');
+        }
+    }
+
+    /**
+     * 刷新所有时间段的曲线选择器
+     */
+    function _refreshAllSegmentCurveSelects() {
+        var selects = document.querySelectorAll('.dnu-seg-curve');
+        for (var i = 0; i < selects.length; i++) {
+            _refreshSegmentCurveSelect(selects[i]);
+        }
+    }
+
+    /**
+     * 时间段曲线选择变更回调
+     * @param {Element} selectEl - 曲线选择下拉框元素
+     */
+    function onSegmentCurveChange(selectEl) {
+        var hint = selectEl.parentNode.querySelector('.dnu-seg-curve-hint');
+        var segment = selectEl.closest('.dnu-segment');
+        if (hint) {
+            if (selectEl.value) {
+                var selectedOption = selectEl.options[selectEl.selectedIndex];
+                hint.textContent = '✅ 已选择：' + selectedOption.textContent;
+                hint.className = 'dnu-seg-curve-hint dnu-seg-curve-hint--selected';
+                if (segment) segment.classList.remove('dnu-segment--invalid');
+            } else {
+                hint.textContent = '⚠️ 请选择留存率曲线';
+                hint.className = 'dnu-seg-curve-hint dnu-seg-curve-hint--invalid';
+                if (segment) segment.classList.add('dnu-segment--invalid');
+            }
+        }
+    }
+
+    /**
+     * 收集指定标签页中各时间段的分段数据（含各自的留存率曲线ID）
+     * @param {number} tabIndex - 标签页索引
+     * @returns {Array<Object>} 时间段数组，每项包含 {startDate, endDate, mode, value/startValue/endValue, curveId}
+     */
+    function _collectSegmentsInfo(tabIndex) {
+        var container = document.getElementById('dnuSegments_' + tabIndex);
+        if (!container) return [];
+
+        var segments = container.querySelectorAll('.dnu-segment');
+        var result = [];
+
+        for (var i = 0; i < segments.length; i++) {
+            var seg = segments[i];
+            var startDateStr = seg.querySelector('.dnu-seg-start').value;
+            var endDateStr = seg.querySelector('.dnu-seg-end').value;
+            var mode = seg.querySelector('.dnu-seg-mode').value;
+            var curveSelect = seg.querySelector('.dnu-seg-curve');
+            var curveId = (curveSelect && curveSelect.value && !curveSelect.options[curveSelect.selectedIndex].disabled) ? curveSelect.value : '';
+
+            if (!startDateStr || !endDateStr) continue;
+            if (startDateStr > endDateStr) continue;
+
+            var segInfo = {
+                startDate: startDateStr,
+                endDate: endDateStr,
+                mode: mode,
+                curveId: curveId
+            };
+
+            if (mode === 'fixed') {
+                segInfo.value = parseFloat(seg.querySelector('.dnu-seg-value').value);
+                if (isNaN(segInfo.value)) continue;
+            } else if (mode === 'linear') {
+                segInfo.startValue = parseFloat(seg.querySelector('.dnu-seg-start-value').value);
+                segInfo.endValue = parseFloat(seg.querySelector('.dnu-seg-end-value').value);
+                if (isNaN(segInfo.startValue) || isNaN(segInfo.endValue)) continue;
+            }
+
+            result.push(segInfo);
+        }
+
+        return result;
+    }
+
+    /**
+     * 根据时间段信息生成该时间段的逐天 DNU 数据
+     * @param {Object} segInfo - 时间段信息
+     * @param {string} baseDate - 全局基准日期
+     * @returns {Array<Object>} [{day: N, value: V}, ...]
+     */
+    function _generateSegmentDnuData(segInfo, baseDate) {
+        var startDay = _daysBetweenExclusive(baseDate, segInfo.startDate) + 1;
+        var endDay = _daysBetweenExclusive(baseDate, segInfo.endDate) + 1;
+        var data = [];
+
+        if (segInfo.mode === 'fixed') {
+            for (var d = startDay; d <= endDay; d++) {
+                data.push({ day: d, value: Math.round(segInfo.value) });
+            }
+        } else if (segInfo.mode === 'linear') {
+            var totalDays = endDay - startDay;
+            for (var d2 = startDay; d2 <= endDay; d2++) {
+                var ratio = (totalDays === 0) ? 0 : (d2 - startDay) / totalDays;
+                var val = segInfo.startValue + (segInfo.endValue - segInfo.startValue) * ratio;
+                data.push({ day: d2, value: Math.round(val) });
+            }
+        }
+
+        return data;
+    }
+
+    /**
+     * 构建分段计算所需的 segments 数据结构
+     * 将前端时间段信息转换为后端 calculate_dau_segmented 所需的格式
+     *
+     * @param {Array<Object>} segmentsInfo - 时间段信息数组（含 curveId）
+     * @param {Array<Object>} defaultRetention - 标签页默认留存率数据
+     * @param {number} tabIndex - 标签页索引
+     * @returns {Array<Object>} 后端所需的 segments 数组
+     */
+    function _buildSegmentsForCalculation(segmentsInfo, defaultRetention, tabIndex) {
+        // 获取全局基准日期
+        var baseDate = _getBaseDateForTab(tabIndex);
+        if (!baseDate) return [];
+
+        // 同步构建 segments（曲线数据将在 calculate 中异步加载后填充）
+        var segments = [];
+        for (var j = 0; j < segmentsInfo.length; j++) {
+            var segInfo = segmentsInfo[j];
+            var dnuData = _generateSegmentDnuData(segInfo, baseDate);
+
+            segments.push({
+                dnu_data: dnuData,
+                retention_data: null, // 稍后异步填充
+                curveId: segInfo.curveId || ''
+            });
+        }
+
+        return segments;
+    }
+
+    /**
+     * 异步加载曲线数据并填充到 segments 中
+     * @param {Array<Object>} segments - 分段数据数组
+     * @param {Array<Object>} defaultRetention - 标签页默认留存率
+     * @returns {Promise} 完成后 segments 中的 retention_data 已填充
+     */
+    function _loadCurveDataForSegments(segments, defaultRetention) {
+        // 收集需要加载的曲线ID（去重）
+        var curveIds = [];
+        for (var i = 0; i < segments.length; i++) {
+            if (segments[i].curveId && curveIds.indexOf(segments[i].curveId) === -1) {
+                curveIds.push(segments[i].curveId);
+            }
+        }
+
+        if (curveIds.length === 0) {
+            // 没有专属曲线，全部使用默认留存率
+            for (var k = 0; k < segments.length; k++) {
+                segments[k].retention_data = defaultRetention;
+            }
+            return Promise.resolve();
+        }
+
+        // 并行加载所有需要的曲线数据
+        var loadPromises = curveIds.map(function (curveId) {
+            return utils.request('/api/retention-curves/' + curveId, { method: 'GET' })
+                .then(function (result) {
+                    return { id: curveId, data: result.curve.data };
+                })
+                .catch(function () {
+                    return { id: curveId, data: null };
+                });
+        });
+
+        return Promise.all(loadPromises).then(function (curveResults) {
+            // 构建 curveId -> data 映射
+            var curveMap = {};
+            for (var m = 0; m < curveResults.length; m++) {
+                if (curveResults[m].data) {
+                    curveMap[curveResults[m].id] = curveResults[m].data;
+                }
+            }
+
+            // 填充每个 segment 的 retention_data
+            for (var n = 0; n < segments.length; n++) {
+                if (segments[n].curveId && curveMap[segments[n].curveId]) {
+                    segments[n].retention_data = curveMap[segments[n].curveId];
+                } else {
+                    segments[n].retention_data = defaultRetention;
+                }
+            }
+        });
+    }
+
+    /**
+     * 验证所有时间段是否都配置了有效的留存率曲线
+     * @returns {Array<Element>} 无效的时间段 DOM 元素数组（空数组表示全部有效）
+     */
+    function _validateAllSegmentCurves() {
+        var invalidSegments = [];
+        var allSegments = document.querySelectorAll('.dnu-segment');
+
+        for (var i = 0; i < allSegments.length; i++) {
+            var seg = allSegments[i];
+            var curveSelect = seg.querySelector('.dnu-seg-curve');
+            if (!curveSelect) continue;
+
+            // 检查是否选中了有效的曲线（非 disabled 且有值）
+            var selectedOption = curveSelect.options[curveSelect.selectedIndex];
+            if (!curveSelect.value || (selectedOption && selectedOption.disabled)) {
+                invalidSegments.push(seg);
+            }
+        }
+
+        return invalidSegments;
     }
 
     // ==================== DNU 时间段管理 ====================
@@ -410,6 +674,8 @@
      * @returns {Array<Object>} 格式为 [{day: 1, value: 1500}, ...] 的对象数组
      */
     function _collectDnuFromSegments(tabIndex) {
+        // 注意：baseDate 可通过 _getBaseDateForTab(tabIndex) 单独获取
+        // 此函数仅返回数据数组，不改变原有接口
         var container = document.getElementById('dnuSegments_' + tabIndex);
         if (!container) return [];
 
@@ -484,7 +750,33 @@
     function _daysBetweenExclusive(fromStr, toStr) {
         var s = new Date(fromStr + 'T00:00:00');
         var e = new Date(toStr + 'T00:00:00');
-        return Math.round((e - s) / (1000 * 60 * 60 * 24));
+        return Math.round((e - s) / MS_PER_DAY);
+    }
+
+    /**
+     * 获取指定标签页 DNU 时间段的基准日期（最早的起始日期）
+     * 用于将相对天数映射为实际日期，供图表横轴使用
+     *
+     * @param {number} tabIndex - 标签页索引
+     * @returns {string|null} 基准日期 YYYY-MM-DD，无数据时返回 null
+     */
+    function _getBaseDateForTab(tabIndex) {
+        var container = document.getElementById('dnuSegments_' + tabIndex);
+        if (!container) return null;
+
+        var segments = container.querySelectorAll('.dnu-segment');
+        var allDates = [];
+
+        for (var p = 0; p < segments.length; p++) {
+            var s = segments[p].querySelector('.dnu-seg-start').value;
+            if (s) allDates.push(s);
+            var e = segments[p].querySelector('.dnu-seg-end').value;
+            if (e) allDates.push(e);
+        }
+
+        if (allDates.length === 0) return null;
+        allDates.sort();
+        return allDates[0];
     }
 
     // ==================== 数据录入模式管理（仅留存率使用） ====================
@@ -529,19 +821,6 @@
                 importPanel.classList.add('active');
             }
         }
-    }
-
-    /**
-     * 获取当前录入模式
-     * @param {string} type - 数据类型
-     * @param {number} tabIndex - 标签页索引
-     * @returns {string} 当前模式
-     */
-    function _getInputMode(type, tabIndex) {
-        if (_inputModes[type] && _inputModes[type][tabIndex]) {
-            return _inputModes[type][tabIndex];
-        }
-        return INPUT_MODE.MANUAL;
     }
 
     // ==================== 分析结果标签页管理 ====================
@@ -679,36 +958,55 @@
             chartPanel.id = 'chartSection_' + newIndex;
             chartPanel.setAttribute('data-result-panel-index', newIndex);
             chartPanel.innerHTML =
-                '<div class="charts-dual-layout">' +
-'  <div class="chart-container">' +
-                '    <div class="chart-container__toolbar">' +
-                '      <div class="chart-container__header">📈 DNU 曲线</div>' +
-                '      <div class="data-view-toggle" role="group" aria-label="DNU 数据展示切换">' +
-                '        <button type="button" class="btn btn-data-view active" data-view="chart"' +
-                '                onclick="IAA.chart.switchDataView(\'dnu\',' + newIndex + ',\'chart\',this)">📈 图表展示</button>' +
-                '        <button type="button" class="btn btn-data-view" data-view="list"' +
-                '                onclick="IAA.chart.switchDataView(\'dnu\',' + newIndex + ',\'list\',this)">📋 列表展示</button>' +
-                '      </div>' +
-                '    </div>' +
-                '    <div id="dnuTableWrap_' + newIndex + '" class="data-table-wrap" style="display: none;"></div>' +
-                '    <div id="chartCanvasDnu_' + newIndex + 'Wrap" class="data-chart-wrap">' +
-                '      <canvas id="chartCanvasDnu_' + newIndex + '" height="300"></canvas>' +
+                '<!-- 图表全局工具栏：日期范围 + 视角切换 -->' +
+                '<div class="chart-global-toolbar" data-chart-group="tab_' + newIndex + '">' +
+                '  <div class="chart-global-toolbar__left">' +
+                '    <label class="chart-toolbar-label">📅 日期范围：</label>' +
+                '    <input type="date" class="form-input chart-date-input" id="chartStartDate_' + newIndex + '" placeholder="起始日期">' +
+                '    <span class="chart-toolbar-separator">至</span>' +
+                '    <input type="date" class="form-input chart-date-input" id="chartEndDate_' + newIndex + '" placeholder="结束日期">' +
+                '    <button class="btn btn-secondary btn-sm chart-toolbar-btn" onclick="IAA.workspace.applyChartDateRange(' + newIndex + ')">应用</button>' +
+                '    <button class="btn btn-secondary btn-sm chart-toolbar-btn" onclick="IAA.workspace.resetChartDateRange(' + newIndex + ')">重置</button>' +
+                '  </div>' +
+                '  <div class="chart-global-toolbar__right">' +
+                '    <div class="chart-view-toggle" id="chartViewToggle_' + newIndex + '">' +
+                '      <button class="btn btn-chart-view active" data-view-mode="day"' +
+                '              onclick="IAA.workspace.switchChartViewMode(' + newIndex + ', \'day\', this)">📅 日视角</button>' +
+                '      <button class="btn btn-chart-view" data-view-mode="month"' +
+                '              onclick="IAA.workspace.switchChartViewMode(' + newIndex + ', \'month\', this)">📆 月视角</button>' +
                 '    </div>' +
                 '  </div>' +
-'  <div class="chart-container">' +
-                '    <div class="chart-container__toolbar">' +
-                '      <div class="chart-container__header">📊 DAU 曲线</div>' +
-                '      <div class="data-view-toggle" role="group" aria-label="DAU 数据展示切换">' +
-                '        <button type="button" class="btn btn-data-view active" data-view="chart"' +
-                '                onclick="IAA.chart.switchDataView(\'dau\',' + newIndex + ',\'chart\',this)">📈 图表展示</button>' +
-                '        <button type="button" class="btn btn-data-view" data-view="list"' +
-                '                onclick="IAA.chart.switchDataView(\'dau\',' + newIndex + ',\'list\',this)">📋 列表展示</button>' +
-                '      </div>' +
+                '</div>' +
+                '<!-- DNU 图表区域（独立一行） -->' +
+                '<div class="chart-container chart-container--full">' +
+                '  <div class="chart-container__toolbar">' +
+                '    <div class="chart-container__header">📈 DNU 曲线</div>' +
+                '    <div class="data-view-toggle" role="group" aria-label="DNU 数据展示切换">' +
+                '      <button type="button" class="btn btn-data-view active" data-view="chart"' +
+                '              onclick="IAA.chart.switchDataView(\'dnu\',' + newIndex + ',\'chart\',this)">📈 图表展示</button>' +
+                '      <button type="button" class="btn btn-data-view" data-view="list"' +
+                '              onclick="IAA.chart.switchDataView(\'dnu\',' + newIndex + ',\'list\',this)">📋 列表展示</button>' +
                 '    </div>' +
-                '    <div id="dauTableWrap_' + newIndex + '" class="data-table-wrap" style="display: none;"></div>' +
-                '    <div id="chartCanvasDau_' + newIndex + 'Wrap" class="data-chart-wrap">' +
-                '      <canvas id="chartCanvasDau_' + newIndex + '" height="300"></canvas>' +
+                '  </div>' +
+                '  <div id="dnuTableWrap_' + newIndex + '" class="data-table-wrap" style="display: none;"></div>' +
+                '  <div id="chartCanvasDnu_' + newIndex + 'Wrap" class="data-chart-wrap">' +
+                '    <canvas id="chartCanvasDnu_' + newIndex + '" height="300"></canvas>' +
+                '  </div>' +
+                '</div>' +
+                '<!-- DAU 图表区域（独立一行） -->' +
+                '<div class="chart-container chart-container--full">' +
+                '  <div class="chart-container__toolbar">' +
+                '    <div class="chart-container__header">📊 DAU 曲线</div>' +
+                '    <div class="data-view-toggle" role="group" aria-label="DAU 数据展示切换">' +
+                '      <button type="button" class="btn btn-data-view active" data-view="chart"' +
+                '              onclick="IAA.chart.switchDataView(\'dau\',' + newIndex + ',\'chart\',this)">📈 图表展示</button>' +
+                '      <button type="button" class="btn btn-data-view" data-view="list"' +
+                '              onclick="IAA.chart.switchDataView(\'dau\',' + newIndex + ',\'list\',this)">📋 列表展示</button>' +
                 '    </div>' +
+                '  </div>' +
+                '  <div id="dauTableWrap_' + newIndex + '" class="data-table-wrap" style="display: none;"></div>' +
+                '  <div id="chartCanvasDau_' + newIndex + 'Wrap" class="data-chart-wrap">' +
+                '    <canvas id="chartCanvasDau_' + newIndex + '" height="300"></canvas>' +
                 '  </div>' +
                 '</div>';
 
@@ -892,13 +1190,23 @@
             var dnuData = collectTableData('dnu', index);
             var retentionData = collectTableData('retention', index);
 
-            allTabsData.push({
+            // 收集时间段信息（含各自的留存率曲线ID）
+            var segmentsInfo = _collectSegmentsInfo(index);
+
+            var tabEntry = {
                 tab_index: index,
                 tab_name: tabName,
                 dnu_data: dnuData,
                 retention_data: retentionData,
                 dau_result: []
-            });
+            };
+
+            // 始终使用分段模式（每个时间段都有专属曲线）
+            if (segmentsInfo.length > 0) {
+                tabEntry.segments = _buildSegmentsForCalculation(segmentsInfo, retentionData, index);
+            }
+
+            allTabsData.push(tabEntry);
         }
 
         // 过滤出有 DNU 数据的标签页
@@ -906,6 +1214,17 @@
 
         if (validTabs.length === 0) {
             utils.showToast('所有标签页均无 DNU 数据，请先输入数据', 'error');
+            return;
+        }
+
+        // 验证所有时间段是否都配置了有效的留存率曲线
+        var invalidSegments = _validateAllSegmentCurves();
+        if (invalidSegments.length > 0) {
+            utils.showToast('存在 ' + invalidSegments.length + ' 个时间段未配置有效的留存率曲线，请先在曲线库中保存曲线', 'error');
+            // 高亮无效的时间段
+            for (var vi = 0; vi < invalidSegments.length; vi++) {
+                invalidSegments[vi].classList.add('dnu-segment--invalid');
+            }
             return;
         }
 
@@ -925,33 +1244,56 @@
 
         validTabs.forEach(function (tabData) {
             chain = chain.then(function () {
-                return utils.request('/api/calculate/dau', {
-                    method: 'POST',
-                    body: {
-                        tab_name: tabData.tab_name,
-                        dnu_data: tabData.dnu_data,
-                        retention_data: tabData.retention_data
-                    }
-                })
-                .then(function (result) {
-                    // 保存 DAU 结果
-                    tabData.dau_result = result.dau_result;
+                // 构建请求体：检查是否有时间段使用了专属留存率曲线
+                var requestBody = {
+                    tab_name: tabData.tab_name,
+                    retention_data: tabData.retention_data
+                };
 
-                    // 同步更新 allTabsData 中对应标签的 DAU 结果
+                if (tabData.segments && tabData.segments.length > 0) {
+                    // 分段模式：先异步加载各时间段的曲线数据，再发送计算请求
+                    return _loadCurveDataForSegments(tabData.segments, tabData.retention_data)
+                        .then(function () {
+                            requestBody.segments = tabData.segments;
+                            return utils.request('/api/calculate/dau', {
+                                method: 'POST',
+                                body: requestBody
+                            });
+                        });
+                } else {
+                    // 统一模式（向后兼容）
+                    requestBody.dnu_data = tabData.dnu_data;
+                    return utils.request('/api/calculate/dau', {
+                        method: 'POST',
+                        body: requestBody
+                    });
+                }
+            })
+                .then(function (result) {
+                    // 保存 DAU 结果和 baseDate
+                    tabData.dau_result = result.dau_result;
+                    var baseDate = _getBaseDateForTab(tabData.tab_index);
+                    tabData.baseDate = baseDate;
+
+                    // 同步更新 allTabsData 中对应标签的 DAU 结果和 baseDate
                     for (var j = 0; j < allTabsData.length; j++) {
                         if (allTabsData[j].tab_index === tabData.tab_index) {
                             allTabsData[j].dau_result = result.dau_result;
+                            allTabsData[j].baseDate = baseDate;
                             break;
                         }
                     }
 
-                    // 渲染该标签页的图表
+                    // 渲染该标签页的图表（传递 baseDate 用于日期横轴）
                     var dnuCanvasId = 'chartCanvasDnu_' + tabData.tab_index;
                     var dauCanvasId = 'chartCanvasDau_' + tabData.tab_index;
 
                     if (IAA.chart && IAA.chart.renderDauChart) {
-                        IAA.chart.renderDauChart(dnuCanvasId, dauCanvasId, tabData.dnu_data, result.dau_result, tabData.tab_name);
+                        IAA.chart.renderDauChart(dnuCanvasId, dauCanvasId, tabData.dnu_data, result.dau_result, tabData.tab_name, baseDate);
                     }
+
+                    // 初始化日期范围选择器的默认值
+                    _initChartDateRange(tabData.tab_index, dnuCanvasId);
 
                     // 渲染列表视图数据
                     _renderResultListView('dnuTableWrap_' + tabData.tab_index, tabData.dnu_data, 'DNU');
@@ -961,7 +1303,6 @@
                     completedCount++;
                     btn.textContent = '⏳ 计算中（' + completedCount + '/' + validTabs.length + '）...';
                 });
-            });
         });
 
         // 所有标签页计算完成后，请求全局汇总
@@ -1015,9 +1356,23 @@
                 totalSection.style.display = 'block';
             }
 
-            if (IAA.chart && IAA.chart.renderTotalChart) {
-                IAA.chart.renderTotalChart('totalChartCanvasDnu', 'totalChartCanvasDau', totalResult.total_dnu, totalResult.total_dau);
+            // 获取全局最早的 baseDate（所有标签页中最早的日期）
+            var globalBaseDate = null;
+            if (allTabsData) {
+                for (var gi = 0; gi < allTabsData.length; gi++) {
+                    var bd = allTabsData[gi].baseDate;
+                    if (bd && (!globalBaseDate || bd < globalBaseDate)) {
+                        globalBaseDate = bd;
+                    }
+                }
             }
+
+            if (IAA.chart && IAA.chart.renderTotalChart) {
+                IAA.chart.renderTotalChart('totalChartCanvasDnu', 'totalChartCanvasDau', totalResult.total_dnu, totalResult.total_dau, globalBaseDate);
+            }
+
+            // 初始化汇总区域的日期范围选择器
+            _initChartDateRange('total', 'totalChartCanvasDnu');
 
             // 渲染汇总区域的列表视图数据
             _renderResultListView('totalDnuTableWrap_total', totalResult.total_dnu, 'DNU 汇总');
@@ -1155,13 +1510,11 @@
             (data.length > MAX_PREVIEW_ROWS ? '（展示前 ' + MAX_PREVIEW_ROWS + ' 行）' : ''),
             'success'
         );
-
-        // 显示"保存为曲线"按钮
-        _showSaveCurveBar(tabIndex);
     }
 
     /**
      * 渲染导入数据预览表格（仅留存率使用）
+     * 注意：调用方需确保数据已缓存到 _importedData 中
      *
      * @param {string} type - 'retention'
      * @param {number} tabIndex - 标签页索引
@@ -1170,9 +1523,11 @@
     function _renderImportPreview(type, tabIndex, data) {
         if (!data || !data.length) return;
 
-        // 缓存完整数据
+        // 确保数据已缓存（兼容直接调用场景，如 _initSavedData）
         if (!_importedData[type]) _importedData[type] = {};
-        _importedData[type][tabIndex] = data;
+        if (!_importedData[type][tabIndex]) {
+            _importedData[type][tabIndex] = data;
+        }
 
         // 获取预览容器
         var prefix = 'ret';
@@ -1255,9 +1610,6 @@
             previewWrapper.innerHTML = '';
         }
 
-        // 隐藏保存曲线按钮
-        _hideSaveCurveBar(tabIndex);
-
         // 切换回手动输入模式
         switchInputMode(type, tabIndex, INPUT_MODE.MANUAL);
 
@@ -1296,22 +1648,6 @@
     }
 
     // ==================== 留存率曲线保存与加载 ====================
-
-    /**
-     * 显示"保存为曲线"按钮（已集成到导入预览中，无需单独操作）
-     * @param {number} tabIndex - 标签页索引
-     */
-    function _showSaveCurveBar(tabIndex) {
-        // 保存按钮已集成到导入预览的操作栏中，随预览一起显示
-    }
-
-    /**
-     * 隐藏"保存为曲线"按钮（已集成到导入预览中，无需单独操作）
-     * @param {number} tabIndex - 标签页索引
-     */
-    function _hideSaveCurveBar(tabIndex) {
-        // 保存按钮已集成到导入预览的操作栏中，随预览一起销毁
-    }
 
     /**
      * 弹出保存曲线命名弹窗
@@ -1400,11 +1736,15 @@
         utils.request('/api/retention-curves', { method: 'GET' })
         .then(function (result) {
             var curves = result.curves || [];
+            // 缓存曲线列表供时间段选择器使用
+            _cachedCurvesList = curves;
             // 更新所有标签页的曲线列表
             var lists = document.querySelectorAll('.saved-curves-list');
             for (var i = 0; i < lists.length; i++) {
                 _renderSavedCurvesList(lists[i], curves);
             }
+            // 同时刷新所有时间段的曲线选择器
+            _refreshAllSegmentCurveSelects();
         })
         .catch(function () {
             // 静默失败
@@ -1507,47 +1847,272 @@
     /**
      * 渲染分析结果的列表视图
      * 将数据以只读表格形式渲染到指定容器中，供用户在列表模式下查看
+     * 支持两种调用方式：
+     *   1. 原始数据模式（计算完成时）：传入 [{day, value}, ...] 格式
+     *   2. 处理后数据模式（视角切换时）：传入 {labels, values} 格式
      *
      * @param {string} containerId - 列表容器的 DOM ID
-     * @param {Array<Object>} data - 数据 [{day:1, value:1500}, ...]
+     * @param {Array<Object>|Object} dataOrProcessed - 原始数据数组或处理后的数据对象
      * @param {string} label - 数据标签名称（如 'DNU'、'DAU'）
+     * @param {string} [viewMode] - 可选，'day' 或 'month'，仅在处理后数据模式下使用
      */
-    function _renderResultListView(containerId, data, label) {
+    function _renderResultListView(containerId, dataOrProcessed, label, viewMode) {
         var container = document.getElementById(containerId);
         if (!container) return;
-        if (!data || !data.length) {
+
+        var labels, values;
+
+        // 判断是处理后的数据对象还是原始数据数组
+        if (dataOrProcessed && dataOrProcessed.labels && dataOrProcessed.values) {
+            // 处理后数据模式：直接使用 labels 和 values
+            labels = dataOrProcessed.labels;
+            values = dataOrProcessed.values;
+        } else if (Array.isArray(dataOrProcessed) && dataOrProcessed.length > 0) {
+            // 原始数据模式：按天数排序后提取
+            var sorted = dataOrProcessed.slice().sort(function (a, b) { return a.day - b.day; });
+            labels = sorted.map(function (item) { return String(item.day); });
+            values = sorted.map(function (item) { return item.value; });
+        } else {
             container.innerHTML = '<p style="text-align:center;color:#888;padding:20px;">暂无数据</p>';
             return;
         }
 
-        // 按天数排序
-        var sorted = data.slice().sort(function (a, b) { return a.day - b.day; });
+        if (!labels.length) {
+            container.innerHTML = '<p style="text-align:center;color:#888;padding:20px;">暂无数据</p>';
+            return;
+        }
+
+        // 根据视角模式决定第一列表头
+        var isMonth = (viewMode === 'month');
+        var firstColHeader = isMonth ? '月份' : '天数 (Day)';
 
         var html = '<table class="data-table imported-data-table">';
-        html += '<thead><tr><th>天数 (Day)</th><th>' + _escapeHtml(label) + ' 数值</th></tr></thead>';
+        html += '<thead><tr><th>' + _escapeHtml(firstColHeader) + '</th><th>' + _escapeHtml(label) + ' 数值</th></tr></thead>';
         html += '<tbody>';
 
-        for (var i = 0; i < sorted.length; i++) {
-            var item = sorted[i];
-            var displayValue;
-            // DNU 数据始终以数值形式展示，不添加百分号
-            displayValue = item.value.toLocaleString();
-            html += '<tr><td>' + item.day + '</td><td>' + displayValue + '</td></tr>';
+        for (var i = 0; i < labels.length; i++) {
+            var displayValue = (typeof values[i] === 'number')
+                ? Math.round(values[i]).toLocaleString()
+                : values[i];
+            html += '<tr><td>' + labels[i] + '</td><td>' + displayValue + '</td></tr>';
         }
 
         html += '</tbody></table>';
         container.innerHTML = html;
     }
 
+    /**
+     * 同步更新指定图表组对应的列表视图
+     * 从 chart_render.js 获取经过日期筛选和视角聚合处理后的数据，重新渲染列表
+     *
+     * @param {number|string} tabIndexOrTotal - 标签页索引或 'total'
+     * @param {string} viewMode - 'day' 或 'month'
+     * @param {string|null} startDate - 筛选起始日期
+     * @param {string|null} endDate - 筛选结束日期
+     */
+    function _updateResultListViews(tabIndexOrTotal, viewMode, startDate, endDate) {
+        if (!IAA.chart || !IAA.chart.getProcessedData) return;
+
+        var canvasIds = _getCanvasIdsForGroup(tabIndexOrTotal);
+
+        for (var i = 0; i < canvasIds.length; i++) {
+            var canvasId = canvasIds[i];
+            var processed = IAA.chart.getProcessedData(canvasId, viewMode, startDate, endDate);
+
+            // 确定对应的列表容器 ID 和标签
+            var tableWrapId, label;
+            if (tabIndexOrTotal === 'total') {
+                if (canvasId === 'totalChartCanvasDnu') {
+                    tableWrapId = 'totalDnuTableWrap_total';
+                    label = 'DNU 汇总';
+                } else {
+                    tableWrapId = 'totalDauTableWrap_total';
+                    label = 'DAU 汇总';
+                }
+            } else {
+                if (canvasId.indexOf('Dnu') !== -1) {
+                    tableWrapId = 'dnuTableWrap_' + tabIndexOrTotal;
+                    label = 'DNU';
+                } else {
+                    tableWrapId = 'dauTableWrap_' + tabIndexOrTotal;
+                    label = 'DAU';
+                }
+            }
+
+            if (processed) {
+                _renderResultListView(tableWrapId, processed, label, viewMode);
+            }
+        }
+    }
+
+    // ==================== 图表工具栏交互函数 ====================
+
+    /**
+     * 初始化图表日期范围选择器的默认值
+     * 计算完成后自动调用，根据图表数据设置日期输入框的 min/max/value
+     *
+     * @param {number|string} tabIndexOrTotal - 标签页索引或 'total'
+     * @param {string} referenceCanvasId - 参考的 Canvas ID（用于获取日期范围）
+     */
+    function _initChartDateRange(tabIndexOrTotal, referenceCanvasId) {
+        if (!IAA.chart || !IAA.chart.getChartDateRange) return;
+
+        var range = IAA.chart.getChartDateRange(referenceCanvasId);
+        if (!range) return;
+
+        var startInput = document.getElementById('chartStartDate_' + tabIndexOrTotal);
+        var endInput = document.getElementById('chartEndDate_' + tabIndexOrTotal);
+
+        if (startInput) {
+            startInput.min = range.minDate;
+            startInput.max = range.maxDate;
+            startInput.value = range.minDate;
+        }
+        if (endInput) {
+            endInput.min = range.minDate;
+            endInput.max = range.maxDate;
+            endInput.value = range.maxDate;
+        }
+    }
+
+    /**
+     * 应用日期范围筛选
+     * 由工具栏"应用"按钮触发，读取日期输入框的值并重新渲染图表
+     *
+     * @param {number|string} tabIndexOrTotal - 标签页索引或 'total'
+     */
+    function applyChartDateRange(tabIndexOrTotal) {
+        var startInput = document.getElementById('chartStartDate_' + tabIndexOrTotal);
+        var endInput = document.getElementById('chartEndDate_' + tabIndexOrTotal);
+
+        var startDate = startInput ? startInput.value : null;
+        var endDate = endInput ? endInput.value : null;
+
+        // 获取当前视角模式
+        var viewMode = _getCurrentViewMode(tabIndexOrTotal);
+
+        // 确定需要更新的 Canvas ID
+        var canvasIds = _getCanvasIdsForGroup(tabIndexOrTotal);
+
+        if (IAA.chart && IAA.chart.applyChartFilterBatch) {
+            IAA.chart.applyChartFilterBatch(canvasIds, viewMode, startDate, endDate);
+        }
+
+        // 同步更新列表视图
+        _updateResultListViews(tabIndexOrTotal, viewMode, startDate, endDate);
+    }
+
+    /**
+     * 重置日期范围筛选
+     * 清空日期输入框并恢复显示全部数据
+     *
+     * @param {number|string} tabIndexOrTotal - 标签页索引或 'total'
+     */
+    function resetChartDateRange(tabIndexOrTotal) {
+        var startInput = document.getElementById('chartStartDate_' + tabIndexOrTotal);
+        var endInput = document.getElementById('chartEndDate_' + tabIndexOrTotal);
+
+        // 重置为完整范围
+        var canvasIds = _getCanvasIdsForGroup(tabIndexOrTotal);
+        if (canvasIds.length > 0 && IAA.chart && IAA.chart.getChartDateRange) {
+            var range = IAA.chart.getChartDateRange(canvasIds[0]);
+            if (range) {
+                if (startInput) startInput.value = range.minDate;
+                if (endInput) endInput.value = range.maxDate;
+            }
+        }
+
+        // 获取当前视角模式
+        var viewMode = _getCurrentViewMode(tabIndexOrTotal);
+
+        if (IAA.chart && IAA.chart.applyChartFilterBatch) {
+            IAA.chart.applyChartFilterBatch(canvasIds, viewMode, null, null);
+        }
+
+        // 同步更新列表视图
+        _updateResultListViews(tabIndexOrTotal, viewMode, null, null);
+    }
+
+    /**
+     * 切换图表视角模式（日视角 / 月视角）
+     * DNU 在月视角下采用求和，DAU 在月视角下采用平均值（由 chart_render.js 内部处理）
+     *
+     * @param {number|string} tabIndexOrTotal - 标签页索引或 'total'
+     * @param {string} viewMode - 'day' 或 'month'
+     * @param {HTMLElement} btn - 触发按钮
+     */
+    function switchChartViewMode(tabIndexOrTotal, viewMode, btn) {
+        if (!btn) return;
+
+        // 更新按钮激活状态
+        var group = btn.closest('.chart-view-toggle');
+        if (group) {
+            group.querySelectorAll('.btn-chart-view').forEach(function (b) {
+                b.classList.remove('active');
+            });
+            btn.classList.add('active');
+        }
+
+        // 读取当前日期范围
+        var startInput = document.getElementById('chartStartDate_' + tabIndexOrTotal);
+        var endInput = document.getElementById('chartEndDate_' + tabIndexOrTotal);
+        var startDate = startInput ? startInput.value : null;
+        var endDate = endInput ? endInput.value : null;
+
+        // 确定需要更新的 Canvas ID
+        var canvasIds = _getCanvasIdsForGroup(tabIndexOrTotal);
+
+        if (IAA.chart && IAA.chart.applyChartFilterBatch) {
+            IAA.chart.applyChartFilterBatch(canvasIds, viewMode, startDate, endDate);
+        }
+
+        // 同步更新列表视图
+        _updateResultListViews(tabIndexOrTotal, viewMode, startDate, endDate);
+    }
+
+    /**
+     * 获取指定图表组的所有 Canvas ID
+     * @param {number|string} tabIndexOrTotal - 标签页索引或 'total'
+     * @returns {Array<string>} Canvas ID 数组
+     */
+    function _getCanvasIdsForGroup(tabIndexOrTotal) {
+        if (tabIndexOrTotal === 'total') {
+            return ['totalChartCanvasDnu', 'totalChartCanvasDau'];
+        }
+        return [
+            'chartCanvasDnu_' + tabIndexOrTotal,
+            'chartCanvasDau_' + tabIndexOrTotal
+        ];
+    }
+
+    /**
+     * 获取指定图表组当前的视角模式
+     * @param {number|string} tabIndexOrTotal - 标签页索引或 'total'
+     * @returns {string} 'day' 或 'month'
+     */
+    function _getCurrentViewMode(tabIndexOrTotal) {
+        var toggleContainer = document.getElementById('chartViewToggle_' + tabIndexOrTotal);
+        if (!toggleContainer) return 'day';
+
+        var activeBtn = toggleContainer.querySelector('.btn-chart-view.active');
+        if (activeBtn) {
+            return activeBtn.getAttribute('data-view-mode') || 'day';
+        }
+        return 'day';
+    }
+
     // ==================== 辅助函数 ====================
 
     /**
      * HTML 转义，防止 XSS
+     * 使用缓存的 DOM 元素避免重复创建
+     * @param {string} str - 需要转义的字符串
+     * @returns {string} 转义后的安全字符串
      */
+    var _escapeDiv = document.createElement('div');
     function _escapeHtml(str) {
-        var div = document.createElement('div');
-        div.appendChild(document.createTextNode(str));
-        return div.innerHTML;
+        _escapeDiv.textContent = str;
+        return _escapeDiv.innerHTML;
     }
 
     /**
@@ -1628,6 +2193,13 @@
             '          <label>结束值</label>' +
             '          <input type="number" class="form-input dnu-seg-end-value" value="" min="0" step="1" placeholder="如 1000">' +
             '        </div>' +
+            '        <div class="dnu-segment__field dnu-segment__field--curve">' +
+            '          <label>📉 留存率曲线</label>' +
+            '          <select class="form-input dnu-seg-curve" onchange="IAA.workspace.onSegmentCurveChange(this)">' +
+            '            <option value="" disabled>无可用曲线</option>' +
+            '          </select>' +
+            '          <span class="dnu-seg-curve-hint dnu-seg-curve-hint--invalid">⚠️ 请先在左侧保存留存率曲线</span>' +
+            '        </div>' +
             '        <div class="dnu-segment__actions">' +
 '    <button class="btn btn-danger btn-sm" onclick="IAA.workspace.removeDnuSegment(this)" title="删除此时间段">删除</button>' +
             '        </div>' +
@@ -1680,7 +2252,11 @@
         showSaveCurveModal: showSaveCurveModal,
         confirmSaveCurve: confirmSaveCurve,
         loadSavedCurve: loadSavedCurve,
-        deleteSavedCurve: deleteSavedCurve
+        deleteSavedCurve: deleteSavedCurve,
+        applyChartDateRange: applyChartDateRange,
+        resetChartDateRange: resetChartDateRange,
+        switchChartViewMode: switchChartViewMode,
+        onSegmentCurveChange: onSegmentCurveChange
     };
 
 })(window);

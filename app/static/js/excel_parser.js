@@ -23,6 +23,51 @@
     var IAA = global.IAA;
     var utils = IAA.utils;
 
+    // ========== 模块级常量 ==========
+
+    /** 支持的 MIME 类型 */
+    var VALID_MIME_TYPES = [
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
+        'application/vnd.ms-excel', // .xls
+        'text/csv'                  // .csv
+    ];
+
+    /** 支持的文件扩展名 */
+    var VALID_EXTENSIONS = ['xlsx', 'xls', 'csv'];
+
+    /** 常见表头关键词集合（用于精确匹配和模糊匹配） */
+    var HEADER_KEYWORDS = [
+        'day', 'days', '天数', '天', '日期', 'date',
+        'dnu', 'dau', 'value', '数值', '值', '新增', '用户',
+        'retention', '留存', '留存率', 'rate', '比率', '百分比',
+        'no', 'number', '序号', '编号', 'id', 'index'
+    ];
+
+    /** 精度保留倍数（保留4位小数） */
+    var PRECISION_FACTOR = 10000;
+
+    // ========== 辅助函数 ==========
+
+    /**
+     * 判断值是否为空（undefined / null / 空字符串）
+     * @param {*} val - 待检测的值
+     * @returns {boolean}
+     */
+    function _isEmpty(val) {
+        return val === undefined || val === null || val === '';
+    }
+
+    /**
+     * 从文件名中安全提取扩展名
+     * @param {string} fileName - 文件名
+     * @returns {string} 小写扩展名，无扩展名时返回空字符串
+     */
+    function _getFileExtension(fileName) {
+        var dotIndex = fileName.lastIndexOf('.');
+        if (dotIndex === -1 || dotIndex === fileName.length - 1) return '';
+        return fileName.substring(dotIndex + 1).toLowerCase();
+    }
+
     /**
      * 处理文件上传事件
      * 前端使用 FileReader API 读取文件内容，再交给 SheetJS 解析
@@ -36,15 +81,10 @@
         var file = inputEl.files && inputEl.files[0];
         if (!file) return;
 
-        // 校验文件类型
-        var validTypes = [
-            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
-            'application/vnd.ms-excel', // .xls
-            'text/csv'                  // .csv
-        ];
-        var ext = file.name.split('.').pop().toLowerCase();
+        // 校验文件类型（优先检查扩展名，MIME 类型作为补充）
+        var ext = _getFileExtension(file.name);
 
-        if (validTypes.indexOf(file.type) === -1 && ['xlsx', 'xls', 'csv'].indexOf(ext) === -1) {
+        if (VALID_EXTENSIONS.indexOf(ext) === -1 && VALID_MIME_TYPES.indexOf(file.type) === -1) {
             utils.showToast('不支持的文件格式，请上传 .xlsx / .xls / .csv 文件', 'error');
             inputEl.value = '';
             return;
@@ -159,7 +199,7 @@
 
             result.push({
                 day: day,
-                value: Math.round(value * 10000) / 10000 // 保留4位小数精度
+                value: Math.round(value * PRECISION_FACTOR) / PRECISION_FACTOR // 保留4位小数精度
             });
         }
 
@@ -176,10 +216,10 @@
      *
      * 检测策略：
      *   1. 如果第一行为空或只有一个单元格，视为表头（跳过）
-     *   2. 检查第一行数据列的单元格是否为纯数字
+     *   2. 检查第一行是否包含常见表头关键词（中英文），直接判定为表头
+     *   3. 检查第一行数据列的单元格是否为纯数字
      *      - 如果数据列的值是有效数字 → 第一行是数据行，从第0行开始
      *      - 如果数据列的值不是数字（如 "Day"、"DNU"） → 第一行是表头，从第1行开始
-     *   3. 额外检查：如果第一行包含常见表头关键词（中英文），直接判定为表头
      *
      * @param {Array<Array>} rawData - SheetJS 解析的二维数组
      * @param {number} dataStartCol - 数据起始列索引
@@ -191,22 +231,16 @@
         var firstRow = rawData[0];
         if (!firstRow || firstRow.length === 0) return 1; // 空行，跳过
 
-        // 常见表头关键词（中英文）
-        var headerKeywords = [
-            'day', 'days', '天数', '天', '日期', 'date',
-            'dnu', 'dau', 'value', '数值', '值', '新增', '用户',
-            'retention', '留存', '留存率', 'rate', '比率', '百分比',
-            'no', 'number', '序号', '编号', 'id', 'index'
-        ];
-
         // 检查第一行所有单元格是否包含表头关键词
         for (var col = 0; col < firstRow.length; col++) {
             var cellValue = firstRow[col];
-            if (cellValue === undefined || cellValue === null) continue;
+            if (_isEmpty(cellValue)) continue;
 
             var cellStr = String(cellValue).trim().toLowerCase();
-            for (var k = 0; k < headerKeywords.length; k++) {
-                if (cellStr === headerKeywords[k] || cellStr.indexOf(headerKeywords[k]) !== -1) {
+
+            // 遍历关键词，同时支持精确匹配和模糊匹配
+            for (var k = 0; k < HEADER_KEYWORDS.length; k++) {
+                if (cellStr === HEADER_KEYWORDS[k] || cellStr.indexOf(HEADER_KEYWORDS[k]) !== -1) {
                     return 1; // 包含表头关键词，从第二行开始
                 }
             }
@@ -216,9 +250,8 @@
         var dataColValue = firstRow[dataStartCol];
         var valueColValue = (dataStartCol + 1 < firstRow.length) ? firstRow[dataStartCol + 1] : undefined;
 
-        // 如果数据列的值是有效数字，则第一行是数据行
-        var dataColIsNumeric = (dataColValue !== undefined && dataColValue !== null && !isNaN(_parseNumericValue(dataColValue)));
-        var valueColIsNumeric = (valueColValue !== undefined && valueColValue !== null && !isNaN(_parseNumericValue(valueColValue)));
+        var dataColIsNumeric = !_isEmpty(dataColValue) && !isNaN(_parseNumericValue(dataColValue));
+        var valueColIsNumeric = !_isEmpty(valueColValue) && !isNaN(_parseNumericValue(valueColValue));
 
         // 两列都是数字 → 第一行是数据行
         if (dataColIsNumeric && valueColIsNumeric) {
@@ -226,7 +259,7 @@
         }
 
         // 只有一列是数字（可能只有一列数据）→ 也视为数据行
-        if (dataColIsNumeric && (valueColValue === undefined || valueColValue === null)) {
+        if (dataColIsNumeric && _isEmpty(valueColValue)) {
             return 0;
         }
 
@@ -250,18 +283,19 @@
     function _normalizeRetentionData(data) {
         if (!data || data.length === 0) return data;
 
-        // 统计值 > 1 的数据条数
+        // 单次遍历：统计值 > 1 的数据条数
         var greaterThanOneCount = 0;
-        for (var i = 0; i < data.length; i++) {
+        var len = data.length;
+        for (var i = 0; i < len; i++) {
             if (data[i].value > 1) {
                 greaterThanOneCount++;
             }
         }
 
         // 如果超过 50% 的数据值 > 1，判定为百分比数值，需要除以 100
-        if (greaterThanOneCount > data.length / 2) {
-            for (var j = 0; j < data.length; j++) {
-                data[j].value = Math.round((data[j].value / 100) * 10000) / 10000;
+        if (greaterThanOneCount > len / 2) {
+            for (var j = 0; j < len; j++) {
+                data[j].value = Math.round((data[j].value / 100) * PRECISION_FACTOR) / PRECISION_FACTOR;
             }
         }
 
@@ -270,7 +304,7 @@
 
     /**
      * 自动识别第一个包含数字数据的列索引
-     * 
+     *
      * 扫描策略：
      *   从所有行（包括第一行）开始，逐列检查是否包含数字数据。
      *   如果某列中超过半数的行包含有效数字（含百分比格式），
@@ -283,9 +317,11 @@
     function _findDataStartCol(rawData) {
         if (!rawData || rawData.length < 1) return -1;
 
+        var rowCount = rawData.length;
+
         // 获取最大列数
         var maxCols = 0;
-        for (var r = 0; r < rawData.length; r++) {
+        for (var r = 0; r < rowCount; r++) {
             if (rawData[r] && rawData[r].length > maxCols) {
                 maxCols = rawData[r].length;
             }
@@ -296,12 +332,11 @@
             var numericCount = 0;
             var totalCount = 0;
 
-            // 从所有行开始检查（包括第一行，表头检测由 _detectHeaderRow 负责）
-            for (var row = 0; row < rawData.length; row++) {
+            for (var row = 0; row < rowCount; row++) {
                 if (!rawData[row] || col >= rawData[row].length) continue;
 
                 var cellValue = rawData[row][col];
-                if (cellValue === undefined || cellValue === null || cellValue === '') continue;
+                if (_isEmpty(cellValue)) continue;
 
                 totalCount++;
 
@@ -322,7 +357,7 @@
 
     /**
      * 智能解析数值，支持多种格式
-     * 
+     *
      * 支持的格式：
      *   - 纯数字：1500, 0.45
      *   - 百分比字符串："15%", "45.5%" → 自动转换为小数 0.15, 0.455
@@ -334,7 +369,7 @@
      */
     function _parseNumericValue(raw) {
         // 空值处理
-        if (raw === undefined || raw === null || raw === '') {
+        if (_isEmpty(raw)) {
             return NaN;
         }
 
