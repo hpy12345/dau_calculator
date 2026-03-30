@@ -23,9 +23,6 @@
 
     // ========== 常量定义 ==========
 
-    /** 预览模式下最大展示行数 */
-    var MAX_PREVIEW_ROWS = 30;
-
     /** 数据录入模式枚举（仅留存率使用） */
     var INPUT_MODE = {
         MANUAL: 'manual',
@@ -779,6 +776,39 @@
         return allDates[0];
     }
 
+    /**
+     * 获取指定标签页 DNU 时间段的总日期范围（最早起始日期 ~ 最晚结束日期）
+     * 用于设置日期筛选器的默认显示范围，使其与 DNU 时间段保持一致
+     *
+     * @param {number} tabIndex - 标签页索引
+     * @returns {Object|null} {startDate, endDate} 或 null
+     */
+    function _getDnuDateRangeForTab(tabIndex) {
+        var container = document.getElementById('dnuSegments_' + tabIndex);
+        if (!container) return null;
+
+        var segments = container.querySelectorAll('.dnu-segment');
+        var startDates = [];
+        var endDates = [];
+
+        for (var p = 0; p < segments.length; p++) {
+            var s = segments[p].querySelector('.dnu-seg-start').value;
+            var e = segments[p].querySelector('.dnu-seg-end').value;
+            if (s) startDates.push(s);
+            if (e) endDates.push(e);
+        }
+
+        if (startDates.length === 0 || endDates.length === 0) return null;
+
+        startDates.sort();
+        endDates.sort();
+
+        return {
+            startDate: startDates[0],
+            endDate: endDates[endDates.length - 1]
+        };
+    }
+
     // ==================== 数据录入模式管理（仅留存率使用） ====================
 
     /**
@@ -1292,12 +1322,37 @@
                         IAA.chart.renderDauChart(dnuCanvasId, dauCanvasId, tabData.dnu_data, result.dau_result, tabData.tab_name, baseDate);
                     }
 
-                    // 初始化日期范围选择器的默认值
-                    _initChartDateRange(tabData.tab_index, dnuCanvasId);
+                    // 获取 DNU 时间段的总日期范围，用于设置默认显示范围
+                    var dnuRange = _getDnuDateRangeForTab(tabData.tab_index);
+                    tabData.dnuRange = dnuRange;
 
-                    // 渲染列表视图数据
-                    _renderResultListView('dnuTableWrap_' + tabData.tab_index, tabData.dnu_data, 'DNU');
-                    _renderResultListView('dauTableWrap_' + tabData.tab_index, result.dau_result, 'DAU');
+                    // 同步更新 allTabsData 中对应标签的 dnuRange
+                    for (var jr = 0; jr < allTabsData.length; jr++) {
+                        if (allTabsData[jr].tab_index === tabData.tab_index) {
+                            allTabsData[jr].dnuRange = dnuRange;
+                            break;
+                        }
+                    }
+
+                    // 初始化日期范围选择器的默认值（使用 DNU 时间段范围）
+                    _initChartDateRange(tabData.tab_index, dnuCanvasId, dnuRange);
+
+                    // 应用 DNU 时间段范围筛选，使图表默认只显示 DNU 范围内的数据
+                    if (dnuRange && IAA.chart && IAA.chart.applyChartFilterBatch) {
+                        var canvasIds = _getCanvasIdsForGroup(tabData.tab_index);
+                        IAA.chart.applyChartFilterBatch(canvasIds, 'day', dnuRange.startDate, dnuRange.endDate);
+                    }
+
+                    // 渲染列表视图数据（使用 DNU 范围筛选后的数据）
+                    if (dnuRange && IAA.chart && IAA.chart.getProcessedData) {
+                        var dnuProcessed = IAA.chart.getProcessedData(dnuCanvasId, 'day', dnuRange.startDate, dnuRange.endDate);
+                        var dauProcessed = IAA.chart.getProcessedData(dauCanvasId, 'day', dnuRange.startDate, dnuRange.endDate);
+                        _renderResultListView('dnuTableWrap_' + tabData.tab_index, dnuProcessed || tabData.dnu_data, 'DNU', 'day');
+                        _renderResultListView('dauTableWrap_' + tabData.tab_index, dauProcessed || result.dau_result, 'DAU', 'day');
+                    } else {
+                        _renderResultListView('dnuTableWrap_' + tabData.tab_index, tabData.dnu_data, 'DNU');
+                        _renderResultListView('dauTableWrap_' + tabData.tab_index, result.dau_result, 'DAU');
+                    }
 
                     // 更新进度
                     completedCount++;
@@ -1371,12 +1426,46 @@
                 IAA.chart.renderTotalChart('totalChartCanvasDnu', 'totalChartCanvasDau', totalResult.total_dnu, totalResult.total_dau, globalBaseDate);
             }
 
-            // 初始化汇总区域的日期范围选择器
-            _initChartDateRange('total', 'totalChartCanvasDnu');
+            // 计算全局 DNU 时间段总范围（所有标签页中最早起始日期 ~ 最晚结束日期）
+            var globalDnuRange = null;
+            if (allTabsData) {
+                var globalDnuStart = null;
+                var globalDnuEnd = null;
+                for (var di = 0; di < allTabsData.length; di++) {
+                    var dr = allTabsData[di].dnuRange;
+                    if (dr) {
+                        if (!globalDnuStart || dr.startDate < globalDnuStart) {
+                            globalDnuStart = dr.startDate;
+                        }
+                        if (!globalDnuEnd || dr.endDate > globalDnuEnd) {
+                            globalDnuEnd = dr.endDate;
+                        }
+                    }
+                }
+                if (globalDnuStart && globalDnuEnd) {
+                    globalDnuRange = { startDate: globalDnuStart, endDate: globalDnuEnd };
+                }
+            }
 
-            // 渲染汇总区域的列表视图数据
-            _renderResultListView('totalDnuTableWrap_total', totalResult.total_dnu, 'DNU 汇总');
-            _renderResultListView('totalDauTableWrap_total', totalResult.total_dau, 'DAU 汇总');
+            // 初始化汇总区域的日期范围选择器（使用全局 DNU 时间段范围）
+            _initChartDateRange('total', 'totalChartCanvasDnu', globalDnuRange);
+
+            // 应用全局 DNU 时间段范围筛选，使汇总图表默认只显示 DNU 范围内的数据
+            if (globalDnuRange && IAA.chart && IAA.chart.applyChartFilterBatch) {
+                var totalCanvasIds = _getCanvasIdsForGroup('total');
+                IAA.chart.applyChartFilterBatch(totalCanvasIds, 'day', globalDnuRange.startDate, globalDnuRange.endDate);
+            }
+
+            // 渲染汇总区域的列表视图数据（使用 DNU 范围筛选后的数据）
+            if (globalDnuRange && IAA.chart && IAA.chart.getProcessedData) {
+                var totalDnuProcessed = IAA.chart.getProcessedData('totalChartCanvasDnu', 'day', globalDnuRange.startDate, globalDnuRange.endDate);
+                var totalDauProcessed = IAA.chart.getProcessedData('totalChartCanvasDau', 'day', globalDnuRange.startDate, globalDnuRange.endDate);
+                _renderResultListView('totalDnuTableWrap_total', totalDnuProcessed || totalResult.total_dnu, 'DNU 汇总', 'day');
+                _renderResultListView('totalDauTableWrap_total', totalDauProcessed || totalResult.total_dau, 'DAU 汇总', 'day');
+            } else {
+                _renderResultListView('totalDnuTableWrap_total', totalResult.total_dnu, 'DNU 汇总');
+                _renderResultListView('totalDauTableWrap_total', totalResult.total_dau, 'DAU 汇总');
+            }
         });
     }
 
@@ -1492,7 +1581,7 @@
      * @param {number} tabIndex - 标签页索引
      * @param {Array<Object>} data - [{"day": 1, "value": 0.45}, ...]
      */
-    function fillTableData(type, tabIndex, data) {
+    function fillTableData(type, tabIndex, data, silent) {
         if (!data || !data.length) return;
 
         // 缓存完整数据，供 collectTableData 使用（保留原始精度）
@@ -1505,11 +1594,9 @@
         // 自动切换到导入模式
         switchInputMode(type, tabIndex, INPUT_MODE.IMPORT);
 
-        utils.showToast(
-            '已导入 ' + data.length + ' 条数据' +
-            (data.length > MAX_PREVIEW_ROWS ? '（展示前 ' + MAX_PREVIEW_ROWS + ' 行）' : ''),
-            'success'
-        );
+        if (!silent) {
+            utils.showToast('已导入 ' + data.length + ' 条数据', 'success');
+        }
     }
 
     /**
@@ -1537,17 +1624,13 @@
         // 清空已有预览内容
         previewWrapper.innerHTML = '';
 
-        // 仅展示前 MAX_PREVIEW_ROWS 行数据
-        var displayCount = Math.min(data.length, MAX_PREVIEW_ROWS);
+        // 展示全部数据（容器通过 CSS max-height + overflow-y 实现滚动）
+        var displayCount = data.length;
 
         // 数据行数标注
         var label = document.createElement('div');
         label.className = 'data-count-label';
-        if (data.length > displayCount) {
-            label.textContent = '📊 显示前 ' + displayCount + ' 行，共 ' + data.length + ' 行数据（完整数据已缓存，计算时使用全部数据）';
-        } else {
-            label.textContent = '📊 共 ' + data.length + ' 行数据';
-        }
+        label.textContent = '📊 共 ' + data.length + ' 行数据';
         previewWrapper.appendChild(label);
 
         // 构建滚动容器
@@ -1567,6 +1650,9 @@
 
         var tbody = document.createElement('tbody');
 
+        // 使用 DocumentFragment 批量构建 DOM，减少重排次数，优化大数据量渲染性能
+        var fragment = document.createDocumentFragment();
+
         for (var i = 0; i < displayCount; i++) {
             var item = data[i];
             var tr = document.createElement('tr');
@@ -1576,9 +1662,10 @@
             tr.innerHTML = '<td>' + item.day + '</td>' +
                 '<td>' + displayValue + '</td>';
 
-            tbody.appendChild(tr);
+            fragment.appendChild(tr);
         }
 
+        tbody.appendChild(fragment);
         previewTable.appendChild(tbody);
         scrollWrapper.appendChild(previewTable);
         previewWrapper.appendChild(scrollWrapper);
@@ -1793,8 +1880,8 @@
                 return;
             }
 
-            // 使用与 Excel 导入相同的方式展示数据
-            fillTableData('retention', tabIndex, curve.data);
+            // 使用与 Excel 导入相同的方式展示数据（静默模式，不弹导入提示）
+            fillTableData('retention', tabIndex, curve.data, true);
 
             utils.showToast('已加载曲线「' + curve.name + '」', 'success');
 
@@ -1950,11 +2037,14 @@
     /**
      * 初始化图表日期范围选择器的默认值
      * 计算完成后自动调用，根据图表数据设置日期输入框的 min/max/value
+     * 当提供 dnuRange 时，日期选择器的默认值设置为 DNU 时间段的总范围，
+     * 而 min/max 仍为完整数据范围（允许用户手动扩展查看）
      *
      * @param {number|string} tabIndexOrTotal - 标签页索引或 'total'
      * @param {string} referenceCanvasId - 参考的 Canvas ID（用于获取日期范围）
+     * @param {Object|null} [dnuRange] - DNU 时间段总范围 {startDate, endDate}，用于设置默认显示范围
      */
-    function _initChartDateRange(tabIndexOrTotal, referenceCanvasId) {
+    function _initChartDateRange(tabIndexOrTotal, referenceCanvasId, dnuRange) {
         if (!IAA.chart || !IAA.chart.getChartDateRange) return;
 
         var range = IAA.chart.getChartDateRange(referenceCanvasId);
@@ -1963,15 +2053,19 @@
         var startInput = document.getElementById('chartStartDate_' + tabIndexOrTotal);
         var endInput = document.getElementById('chartEndDate_' + tabIndexOrTotal);
 
+        // 默认显示值：优先使用 DNU 时间段范围，否则使用完整数据范围
+        var defaultStart = (dnuRange && dnuRange.startDate) ? dnuRange.startDate : range.minDate;
+        var defaultEnd = (dnuRange && dnuRange.endDate) ? dnuRange.endDate : range.maxDate;
+
         if (startInput) {
             startInput.min = range.minDate;
             startInput.max = range.maxDate;
-            startInput.value = range.minDate;
+            startInput.value = defaultStart;
         }
         if (endInput) {
             endInput.min = range.minDate;
             endInput.max = range.maxDate;
-            endInput.value = range.maxDate;
+            endInput.value = defaultEnd;
         }
     }
 

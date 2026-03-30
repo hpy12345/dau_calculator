@@ -31,6 +31,13 @@
         {% for p in projects %}
         <div class="project-card" onclick="openProject('{{ p.project_id }}')" data-id="{{ p.project_id }}">
             <div class="project-card__name">{{ p.project_name }}</div>
+            {% if p.tab_names %}
+            <div class="project-card__tags">
+                {% for name in p.tab_names %}
+                <span class="project-card__tag">{{ name }}</span>
+                {% endfor %}
+            </div>
+            {% endif %}
             <div class="project-card__meta">
                 <span>📅 创建: {{ p.created_at }}</span>
                 <span>🔄 更新: {{ p.updated_at }}</span>

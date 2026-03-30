@@ -8,7 +8,7 @@
  * 设计说明：
  *   - 每个 Canvas 对应一个 Chart 实例，存储在内部 Map 中
  *   - 切换 Tab 或重新计算时，先销毁旧实例再创建新实例
- *   - 配色遵循蓝白主色调：DNU 用浅蓝，DAU 用深蓝
+ *   - 配色遵循蓝白主色调：四张图表统一使用浅蓝色曲线
  *   - 横轴使用日期类型，支持日期范围筛选和日/月视角切换
  *   - 月视角下 DNU 采用求和，DAU 采用平均值
  */
@@ -26,14 +26,14 @@
 
     // ========== 配色常量（蓝白主色调） ==========
     var COLORS = {
-        dnuLine: 'rgba(66, 133, 244, 0.8)',       // 浅蓝 - DNU 曲线
-        dnuFill: 'rgba(66, 133, 244, 0.1)',        // DNU 填充区域
-        dauLine: 'rgba(26, 115, 232, 1)',          // 深蓝 - DAU 曲线
-        dauFill: 'rgba(26, 115, 232, 0.15)',       // DAU 填充区域
-        totalDnuLine: 'rgba(100, 181, 246, 0.9)',  // 汇总 DNU
-        totalDnuFill: 'rgba(100, 181, 246, 0.1)',
-        totalDauLine: 'rgba(13, 71, 161, 1)',      // 汇总 DAU（更深蓝）
-        totalDauFill: 'rgba(13, 71, 161, 0.15)',
+        dnuLine: 'rgba(100, 181, 246, 0.85)',      // 浅蓝 - DNU 曲线
+        dnuFill: 'rgba(100, 181, 246, 0.08)',      // DNU 填充区域
+        dauLine: 'rgba(100, 181, 246, 0.85)',      // 浅蓝 - DAU 曲线（统一色调）
+        dauFill: 'rgba(100, 181, 246, 0.08)',      // DAU 填充区域
+        totalDnuLine: 'rgba(100, 181, 246, 0.85)', // 汇总 DNU（统一浅蓝）
+        totalDnuFill: 'rgba(100, 181, 246, 0.08)',
+        totalDauLine: 'rgba(100, 181, 246, 0.85)', // 汇总 DAU（统一浅蓝）
+        totalDauFill: 'rgba(100, 181, 246, 0.08)',
         gridColor: 'rgba(0, 0, 0, 0.06)',
         textColor: '#5f6368'
     };
@@ -56,16 +56,35 @@
     }
 
     /**
-     * 格式化日期为简短显示格式 (MM-DD 或 YYYY-MM)
+     * 格式化日期为简短显示格式
+     * - 日视角：跨年时显示 YYYY-MM-DD，同年内显示 MM-DD
+     * - 月视角：始终显示 YYYY-MM
      * @param {string} dateStr - YYYY-MM-DD 格式日期
      * @param {string} viewMode - 'day' 或 'month'
+     * @param {boolean} isMultiYear - 数据是否跨越多个年份
      * @returns {string} 格式化后的日期
      */
-    function _formatDateLabel(dateStr, viewMode) {
+    function _formatDateLabel(dateStr, viewMode, isMultiYear) {
         if (viewMode === 'month') {
             return dateStr.substring(0, 7); // YYYY-MM
         }
+        // 日视角：跨年时显示完整日期，同年内显示 MM-DD
+        if (isMultiYear) {
+            return dateStr; // YYYY-MM-DD
+        }
         return dateStr.substring(5); // MM-DD
+    }
+
+    /**
+     * 判断数据集是否跨越多个年份
+     * @param {Array<Object>} data - [{date: 'YYYY-MM-DD', ...}, ...]
+     * @returns {boolean} 是否跨年
+     */
+    function _isMultiYear(data) {
+        if (!data || data.length < 2) return false;
+        var firstYear = data[0].date.substring(0, 4);
+        var lastYear = data[data.length - 1].date.substring(0, 4);
+        return firstYear !== lastYear;
     }
 
     /**
@@ -198,7 +217,7 @@
      * @param {string} viewMode - 'day' 或 'month'
      * @returns {Object} Chart.js options 配置
      */
-    function _getChartOptions(xLabel, yLabel, tooltipLabelFn, yTickFn, viewMode) {
+    function _getChartOptions(xLabel, yLabel, tooltipLabelFn, yTickFn, viewMode, fullDates) {
         return {
             responsive: true,
             maintainAspectRatio: false,
@@ -218,11 +237,16 @@
                     cornerRadius: 6,
                     callbacks: {
                         title: function (tooltipItems) {
-                            var label = tooltipItems[0].label || '';
                             if (viewMode === 'month') {
+                                var label = tooltipItems[0].label || '';
                                 return label + ' 月';
                             }
-                            return label;
+                            // 日视角下 tooltip 始终显示完整日期（YYYY-MM-DD）
+                            var idx = tooltipItems[0].dataIndex;
+                            if (fullDates && fullDates[idx]) {
+                                return fullDates[idx];
+                            }
+                            return tooltipItems[0].label || '';
                         },
                         label: tooltipLabelFn || function (context) {
                             var lbl = context.dataset.label || '';
@@ -336,7 +360,8 @@
             labels = displayData.map(function (d) { return d.date; });
             values = displayData.map(function (d) { return d.value; });
         } else {
-            labels = filtered.map(function (d) { return _formatDateLabel(d.date, 'day'); });
+            var multiYear = _isMultiYear(filtered);
+            labels = filtered.map(function (d) { return _formatDateLabel(d.date, 'day', multiYear); });
             values = filtered.map(function (d) { return d.value; });
         }
 
@@ -358,7 +383,13 @@
             return v;
         };
 
-        var chartOptions = _getChartOptions(xLabel, yLabel, tooltipFn, yTickFn, viewMode);
+        // 保存完整日期数组，供 tooltip 显示
+        var fullDates = null;
+        if (viewMode !== 'month') {
+            fullDates = filtered.map(function (d) { return d.date; });
+        }
+
+        var chartOptions = _getChartOptions(xLabel, yLabel, tooltipFn, yTickFn, viewMode, fullDates);
 
         // 4. 渲染
         _renderChart(canvasId, labels, values, label, lineColor, fillColor, lineWidth, chartOptions);

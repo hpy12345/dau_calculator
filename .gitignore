@@ -5,6 +5,9 @@ dau/
 # IDE 配置
 .idea/
 
+# 数据目录
+data/
+
 # Python 缓存
 __pycache__/
 **/__pycache__/

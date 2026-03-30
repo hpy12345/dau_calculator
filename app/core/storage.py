@@ -171,12 +171,14 @@ def list_projects():
         data = load_project(project_id)
         if data is None:
             continue
+        tabs = data.get('tabs', [])
         projects.append({
             'project_id': data.get('project_id', ''),
             'project_name': data.get('project_name', '未命名项目'),
             'created_at': data.get('created_at', ''),
             'updated_at': data.get('updated_at', ''),
-            'tab_count': len(data.get('tabs', []))
+            'tab_count': len(tabs),
+            'tab_names': [t.get('tab_name', '') for t in tabs if t.get('tab_name')]
         })
 
     # 按更新时间倒序排列
