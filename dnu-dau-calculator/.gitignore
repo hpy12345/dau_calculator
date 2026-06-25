@@ -1,0 +1,30 @@
+# Python 字节码与缓存
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# 虚拟环境
+venv/
+env/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 操作系统
+.DS_Store
+Thumbs.db
+
+# 运行时数据（项目 JSON 文件）
+data/projects/*
+!data/projects/.gitkeep
+
+# 环境变量与日志
+.env
+*.log

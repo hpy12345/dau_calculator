@@ -18,6 +18,9 @@
     var IAA = global.IAA;
     var utils = IAA.utils;
 
+    // 数据类型 → DOM class 前缀映射
+    var TYPE_PREFIX = { dnu: 'dnu', retention: 'ret' };
+
     // ========== 模块内部状态 ==========
     var state = {
         projectId: '',
@@ -37,12 +40,85 @@
         state.activeTabIndex = 0;
     }
 
+    // ==================== 辅助函数 ====================
+
+    /**
+     * HTML 转义，防止 XSS
+     * @param {string} str - 待转义的原始字符串
+     * @returns {string} 转义后的安全字符串
+     */
+    function _escapeHtml(str) {
+        var div = document.createElement('div');
+        div.appendChild(document.createTextNode(String(str)));
+        return div.innerHTML;
+    }
+
+    /**
+     * 转义 HTML 属性值中的特殊字符
+     * @param {*} val - 待转义的值（会先转为字符串）
+     * @returns {string} 转义后可安全嵌入属性值的字符串
+     */
+    function _escapeAttr(val) {
+        return String(val)
+            .replace(/&/g, '&amp;')
+            .replace(/"/g, '&quot;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+    }
+
+    /**
+     * 根据数据类型获取对应的 class 前缀
+     * @param {string} type - 'dnu' 或 'retention'
+     * @returns {string} 'dnu' 或 'ret'
+     */
+    function _prefix(type) {
+        return TYPE_PREFIX[type] || type;
+    }
+
+    /**
+     * 构建单行数据表格的 HTML（统一行模板，消除重复代码）
+     *
+     * @param {string} type - 数据类型：'dnu' 或 'retention'
+     * @param {number|string} [day] - 天数值（不传则为空）
+     * @param {number|string} [value] - 数值（不传则为空）
+     * @returns {string} <tr> 的 innerHTML 字符串
+     */
+    function _buildRowHTML(type, day, value) {
+        var p = _prefix(type);
+        var isRetention = (type === 'retention');
+
+        var extraAttrs = isRetention
+            ? ' min="0" max="1" step="0.01"'
+            : ' min="0" step="1"';
+        var placeholder = isRetention ? '如 0.45' : '输入DNU';
+
+        var dayAttr = (day !== undefined && day !== null && day !== '')
+            ? ' value="' + _escapeAttr(day) + '"' : '';
+        var valueAttr = (value !== undefined && value !== null && value !== '')
+            ? ' value="' + _escapeAttr(value) + '"' : '';
+
+        return '<td><input type="number" class="' + p + '-day"' + dayAttr + ' min="1"></td>' +
+            '<td><input type="number" class="' + p + '-value"' + valueAttr + extraAttrs +
+            ' placeholder="' + placeholder + '"></td>' +
+            '<td><button class="btn btn-danger btn-sm" onclick="IAA.workspace.removeRow(this)">删除</button></td>';
+    }
+
+    /**
+     * 根据类型和索引获取数据表格元素
+     * @param {string} type - 'dnu' 或 'retention'
+     * @param {number} tabIndex - 标签页索引
+     * @returns {HTMLElement|null}
+     */
+    function _getTable(type, tabIndex) {
+        var tableId = _prefix(type) + 'Table_' + tabIndex;
+        return document.getElementById(tableId);
+    }
+
     // ==================== 标签页管理 ====================
 
     /**
      * 切换标签页
-     * 通过 JS 控制标签栏高亮和下方面板的显隐，
-     * 切换时销毁旧图表并重绘当前视图（由 chart 模块处理）
+     * 通过 JS 控制标签栏高亮和下方面板的显隐
      *
      * @param {number} index - 目标标签页索引
      */
@@ -85,8 +161,7 @@
 
     /**
      * 添加新标签页
-     * 通过原生 JS 动态创建 DOM 元素，无需框架的虚拟 DOM 机制。
-     * 这是传统前端开发中动态生成 UI 的标准方式。
+     * 通过原生 JS 动态创建 DOM 元素
      */
     function addTab() {
         var input = utils.$('#newTabNameInput');
@@ -165,9 +240,8 @@
 
     /**
      * 从 DOM 表格中收集 "天数-数据" 对应格式的数据
-     * 
-     * 这是不使用 Vue 等框架时的传统数据收集方式：
-     * 直接遍历 DOM 中的 input 元素，读取用户输入值，
+     *
+     * 遍历 DOM 中的 input 元素，读取用户输入值，
      * 组装成后端期望的 JSON 格式。
      *
      * @param {string} type - 数据类型：'dnu' 或 'retention'
@@ -175,26 +249,16 @@
      * @returns {Array<Object>} 格式为 [{"day": 1, "value": 1500}, ...] 的对象数组
      */
     function collectTableData(type, tabIndex) {
-        var tableId = (type === 'dnu') ? 'dnuTable_' + tabIndex : 'retTable_' + tabIndex;
-        var table = document.getElementById(tableId);
+        var table = _getTable(type, tabIndex);
         if (!table) return [];
 
+        var p = _prefix(type);
         var rows = table.querySelectorAll('tbody tr');
         var data = [];
 
         for (var i = 0; i < rows.length; i++) {
-            var dayInput = rows[i].querySelector('.' + type.substring(0, 3) + '-day');
-            var valueInput = rows[i].querySelector('.' + type.substring(0, 3) + '-value');
-
-            // 对于 dnu 类型，class 是 dnu-day / dnu-value
-            // 对于 retention 类型，class 是 ret-day / ret-value
-            if (type === 'dnu') {
-                dayInput = rows[i].querySelector('.dnu-day');
-                valueInput = rows[i].querySelector('.dnu-value');
-            } else {
-                dayInput = rows[i].querySelector('.ret-day');
-                valueInput = rows[i].querySelector('.ret-value');
-            }
+            var dayInput = rows[i].querySelector('.' + p + '-day');
+            var valueInput = rows[i].querySelector('.' + p + '-value');
 
             if (dayInput && valueInput) {
                 var day = parseInt(dayInput.value, 10);
@@ -228,9 +292,12 @@
 
     /**
      * 收集所有标签页的数据（用于保存和全局汇总）
+     *
+     * @param {Array<Object>} [activeDauResult] - 可选，当前激活标签的 DAU 计算结果，
+     *                                            传入时会填充到对应标签的 dau_result 字段
      * @returns {Array<Object>} 所有标签页数据数组
      */
-    function collectAllTabsData() {
+    function collectAllTabsData(activeDauResult) {
         var tabs = utils.$$('.tab-item', utils.$('#tabsBar'));
         var allData = [];
 
@@ -238,11 +305,15 @@
             var index = parseInt(tabs[i].getAttribute('data-tab-index'), 10);
             var tabName = tabs[i].querySelector('.tab-item__label').textContent;
 
+            // 若传入了激活标签的 DAU 结果，且当前标签正是激活标签，则填入
+            var dauResult = (activeDauResult !== undefined && index === state.activeTabIndex)
+                ? activeDauResult : [];
+
             allData.push({
                 tab_name: tabName,
                 dnu_data: collectTableData('dnu', index),
                 retention_data: collectTableData('retention', index),
-                dau_result: [] // 保存时 DAU 结果可能尚未计算
+                dau_result: dauResult
             });
         }
 
@@ -253,14 +324,12 @@
 
     /**
      * 点击"开始计算"按钮的处理函数
-     * 
-     * 交互流程（传统前后端交互，无框架）：
+     *
+     * 交互流程：
      *   1. 从 DOM 收集当前 Tab 的数据
-     *   2. 序列化为 JSON
-     *   3. 通过 fetch POST 到后端 /api/calculate/dau
-     *   4. 接收 JSON 响应
-     *   5. 调用 Chart.js 渲染图表
-     *   6. 再请求全局汇总数据并渲染汇总图表
+     *   2. 通过 fetch POST 到后端 /api/calculate/dau
+     *   3. 调用 Chart.js 渲染当前标签页图表
+     *   4. 再请求全局汇总数据并渲染汇总图表
      */
     function calculate() {
         var btn = utils.$('#calculateBtn');
@@ -290,14 +359,13 @@
                 section.style.display = 'block';
             }
 
-            // 调用 chart 模块渲染 DNU + DAU 对比曲线
             if (IAA.chart && IAA.chart.renderDauChart) {
                 IAA.chart.renderDauChart(canvasId, currentData.dnu_data, result.dau_result, currentData.tab_name);
             }
 
             utils.showToast('计算完成！', 'success');
 
-            // 步骤3：请求全局汇总
+            // 步骤3：请求全局汇总（将当前 DAU 结果注入对应标签）
             return _calculateTotal(result.dau_result);
         })
         .catch(function (err) {
@@ -311,21 +379,13 @@
 
     /**
      * 计算全局汇总（内部函数）
-     * 将当前标签的 DAU 结果更新后，收集所有标签数据请求汇总
+     * 收集所有标签数据（注入当前标签的 DAU 结果）后请求后端汇总
+     *
+     * @param {Array<Object>} currentDauResult - 当前标签的 DAU 计算结果
+     * @returns {Promise}
      */
     function _calculateTotal(currentDauResult) {
-        var allTabs = collectAllTabsData();
-
-        // 将当前标签的 DAU 结果填入
-        for (var i = 0; i < allTabs.length; i++) {
-            var tabEl = utils.$$('.tab-item', utils.$('#tabsBar'))[i];
-            if (tabEl) {
-                var idx = parseInt(tabEl.getAttribute('data-tab-index'), 10);
-                if (idx === state.activeTabIndex) {
-                    allTabs[i].dau_result = currentDauResult;
-                }
-            }
-        }
+        var allTabs = collectAllTabsData(currentDauResult);
 
         return utils.request('/api/calculate/total', {
             method: 'POST',
@@ -347,7 +407,6 @@
     /**
      * 保存项目
      * 收集所有标签页数据，通过 fetch 异步提交到后端
-     * 使用 navigator.sendBeacon 作为备选方案（页面关闭时）
      */
     function saveProject() {
         var btn = utils.$('#saveProjectBtn');
@@ -388,25 +447,14 @@
      * @param {number} tabIndex - 标签页索引
      */
     function addRow(type, tabIndex) {
-        var tableId = (type === 'dnu') ? 'dnuTable_' + tabIndex : 'retTable_' + tabIndex;
-        var table = document.getElementById(tableId);
+        var table = _getTable(type, tabIndex);
         if (!table) return;
 
         var tbody = table.querySelector('tbody');
-        var rowCount = tbody.querySelectorAll('tr').length;
-        var newDay = rowCount + 1;
+        var newDay = tbody.querySelectorAll('tr').length + 1;
 
         var tr = document.createElement('tr');
-        if (type === 'dnu') {
-            tr.innerHTML = '<td><input type="number" class="dnu-day" value="' + newDay + '" min="1"></td>' +
-                '<td><input type="number" class="dnu-value" value="" min="0" step="1" placeholder="输入DNU"></td>' +
-                '<td><button class="btn btn-danger btn-sm" onclick="IAA.workspace.removeRow(this)">删除</button></td>';
-        } else {
-            tr.innerHTML = '<td><input type="number" class="ret-day" value="' + newDay + '" min="1"></td>' +
-                '<td><input type="number" class="ret-value" value="" min="0" max="1" step="0.01" placeholder="如 0.45"></td>' +
-                '<td><button class="btn btn-danger btn-sm" onclick="IAA.workspace.removeRow(this)">删除</button></td>';
-        }
-
+        tr.innerHTML = _buildRowHTML(type, newDay, null);
         tbody.appendChild(tr);
     }
 
@@ -423,23 +471,28 @@
 
     /**
      * 清空表格数据
+     * 使用 DocumentFragment 批量插入，减少 DOM 重排次数
+     *
      * @param {string} type - 'dnu' 或 'retention'
      * @param {number} tabIndex - 标签页索引
      */
     function clearTable(type, tabIndex) {
         if (!confirm('确定要清空所有数据吗？')) return;
 
-        var tableId = (type === 'dnu') ? 'dnuTable_' + tabIndex : 'retTable_' + tabIndex;
-        var table = document.getElementById(tableId);
+        var table = _getTable(type, tabIndex);
         if (!table) return;
 
         var tbody = table.querySelector('tbody');
-        tbody.innerHTML = '';
+        var fragment = document.createDocumentFragment();
 
-        // 重新添加5行空数据
         for (var i = 1; i <= 5; i++) {
-            addRow(type, tabIndex);
+            var tr = document.createElement('tr');
+            tr.innerHTML = _buildRowHTML(type, i, null);
+            fragment.appendChild(tr);
         }
+
+        tbody.innerHTML = '';
+        tbody.appendChild(fragment);
     }
 
     /**
@@ -449,49 +502,34 @@
      * @param {Array<Object>} data - [{"day": 1, "value": 1500}, ...]
      */
     function fillTableData(type, tabIndex, data) {
-        var tableId = (type === 'dnu') ? 'dnuTable_' + tabIndex : 'retTable_' + tabIndex;
-        var table = document.getElementById(tableId);
+        var table = _getTable(type, tabIndex);
         if (!table || !data || !data.length) return;
 
         var tbody = table.querySelector('tbody');
-        tbody.innerHTML = '';
+        var fragment = document.createDocumentFragment();
 
         for (var i = 0; i < data.length; i++) {
-            var item = data[i];
             var tr = document.createElement('tr');
-
-            if (type === 'dnu') {
-                tr.innerHTML = '<td><input type="number" class="dnu-day" value="' + item.day + '" min="1"></td>' +
-                    '<td><input type="number" class="dnu-value" value="' + item.value + '" min="0" step="1"></td>' +
-                    '<td><button class="btn btn-danger btn-sm" onclick="IAA.workspace.removeRow(this)">删除</button></td>';
-            } else {
-                tr.innerHTML = '<td><input type="number" class="ret-day" value="' + item.day + '" min="1"></td>' +
-                    '<td><input type="number" class="ret-value" value="' + item.value + '" min="0" max="1" step="0.01"></td>' +
-                    '<td><button class="btn btn-danger btn-sm" onclick="IAA.workspace.removeRow(this)">删除</button></td>';
-            }
-
-            tbody.appendChild(tr);
+            tr.innerHTML = _buildRowHTML(type, data[i].day, data[i].value);
+            fragment.appendChild(tr);
         }
+
+        tbody.innerHTML = '';
+        tbody.appendChild(fragment);
 
         utils.showToast('已导入 ' + data.length + ' 条数据', 'success');
     }
 
-    // ==================== 辅助函数 ====================
-
-    /**
-     * HTML 转义，防止 XSS
-     */
-    function _escapeHtml(str) {
-        var div = document.createElement('div');
-        div.appendChild(document.createTextNode(str));
-        return div.innerHTML;
-    }
+    // ==================== 动态面板构建 ====================
 
     /**
      * 动态构建新标签页面板的 HTML
-     * 不使用框架模板引擎时，需要手动拼接 HTML 字符串
+     * @param {string} tabName - 标签名称
+     * @param {number} index - 标签索引
+     * @returns {string} 面板 HTML 字符串
      */
     function _buildPanelHTML(tabName, index) {
+        var safeName = _escapeHtml(tabName);
         return '' +
             '<div class="data-section">' +
             '  <div class="data-section__title">📈 DNU（日新增用户）数据 <span class="badge">天数-数值 对应</span></div>' +
@@ -532,7 +570,7 @@
             '  </div>' +
             '</div>' +
             '<div class="charts-section" id="chartSection_' + index + '" style="display:none;">' +
-            '  <h3 class="charts-section__title">📊 ' + _escapeHtml(tabName) + ' - 分析结果</h3>' +
+            '  <h3 class="charts-section__title">📊 ' + safeName + ' - 分析结果</h3>' +
             '  <div class="chart-container">' +
             '    <div class="chart-container__header">DNU 与 DAU 对比曲线</div>' +
             '    <canvas id="chartCanvas_' + index + '" height="300"></canvas>' +
@@ -544,10 +582,7 @@
 
     // DOM 加载完成后初始化
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', function () {
-            init();
-            // 为新标签页添加默认行
-        });
+        document.addEventListener('DOMContentLoaded', init);
     } else {
         init();
     }

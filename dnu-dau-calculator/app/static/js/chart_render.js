@@ -75,6 +75,30 @@
     }
 
     /**
+     * 构建单个折线图数据集配置
+     *
+     * @param {string} label - 数据集名称
+     * @param {Array<number>} data - 数据点数组
+     * @param {string} lineColor - 线条颜色
+     * @param {string} fillColor - 填充区域颜色
+     * @param {number} borderWidth - 线宽
+     * @returns {Object} Chart.js dataset 配置对象
+     */
+    function _buildDataset(label, data, lineColor, fillColor, borderWidth) {
+        return {
+            label: label,
+            data: data,
+            borderColor: lineColor,
+            backgroundColor: fillColor,
+            borderWidth: borderWidth,
+            fill: true,
+            tension: 0.3,
+            pointRadius: 3,
+            pointHoverRadius: 5
+        };
+    }
+
+    /**
      * 获取通用的 Chart.js 配置选项
      * @returns {Object} Chart.js options 配置
      */
@@ -139,21 +163,37 @@
     }
 
     /**
-     * 渲染单个标签页的 DNU + DAU 对比折线图
+     * 通用折线图渲染核心函数
+     * 统一处理实例销毁、Canvas 获取和 Chart 创建逻辑
      *
      * @param {string} canvasId - Canvas 元素 ID
-     * @param {Array<Object>} dnuData - DNU 数据 [{day:1, value:1500}, ...]
-     * @param {Array<Object>} dauData - DAU 计算结果 [{day:1, value:...}, ...]
-     * @param {string} tabName - 标签名称（用于图表标题）
+     * @param {Array<Object>} datasets - Chart.js 数据集数组
+     * @param {Array<string>} labels - X 轴标签数组
      */
-    function renderDauChart(canvasId, dnuData, dauData, tabName) {
-        // 先销毁旧实例
+    function _renderLineChart(canvasId, datasets, labels) {
         destroy(canvasId);
 
         var canvas = document.getElementById(canvasId);
         if (!canvas) return;
 
-        var ctx = canvas.getContext('2d');
+        var chart = new Chart(canvas.getContext('2d'), {
+            type: 'line',
+            data: { labels: labels, datasets: datasets },
+            options: _getCommonOptions()
+        });
+
+        chartInstances[canvasId] = chart;
+    }
+
+    /**
+     * 渲染单个标签页的 DNU + DAU 对比折线图
+     *
+     * @param {string} canvasId - Canvas 元素 ID
+     * @param {Array<Object>} dnuData - DNU 数据 [{day:1, value:1500}, ...]
+     * @param {Array<Object>} dauData - DAU 计算结果 [{day:1, value:...}, ...]
+     * @param {string} [tabName] - 标签名称（预留参数，当前未使用）
+     */
+    function renderDauChart(canvasId, dnuData, dauData, tabName) {
         var dnuParsed = _extractChartData(dnuData);
         var dauParsed = _extractChartData(dauData);
 
@@ -161,39 +201,12 @@
         var labels = dnuParsed.labels.length >= dauParsed.labels.length
             ? dnuParsed.labels : dauParsed.labels;
 
-        var chart = new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: labels,
-                datasets: [
-                    {
-                        label: 'DNU（日新增用户）',
-                        data: dnuParsed.values,
-                        borderColor: COLORS.dnuLine,
-                        backgroundColor: COLORS.dnuFill,
-                        borderWidth: 2,
-                        fill: true,
-                        tension: 0.3,
-                        pointRadius: 3,
-                        pointHoverRadius: 5
-                    },
-                    {
-                        label: 'DAU（日活跃用户）',
-                        data: dauParsed.values,
-                        borderColor: COLORS.dauLine,
-                        backgroundColor: COLORS.dauFill,
-                        borderWidth: 2.5,
-                        fill: true,
-                        tension: 0.3,
-                        pointRadius: 3,
-                        pointHoverRadius: 5
-                    }
-                ]
-            },
-            options: _getCommonOptions()
-        });
+        var datasets = [
+            _buildDataset('DNU（日新增用户）', dnuParsed.values, COLORS.dnuLine, COLORS.dnuFill, 2),
+            _buildDataset('DAU（日活跃用户）', dauParsed.values, COLORS.dauLine, COLORS.dauFill, 2.5)
+        ];
 
-        chartInstances[canvasId] = chart;
+        _renderLineChart(canvasId, datasets, labels);
     }
 
     /**
@@ -205,51 +218,18 @@
      * @param {Array<Object>} totalDau - 累加 DAU [{day:1, value:...}, ...]
      */
     function renderTotalChart(canvasId, totalDnu, totalDau) {
-        destroy(canvasId);
-
-        var canvas = document.getElementById(canvasId);
-        if (!canvas) return;
-
-        var ctx = canvas.getContext('2d');
         var dnuParsed = _extractChartData(totalDnu);
         var dauParsed = _extractChartData(totalDau);
 
         var labels = dnuParsed.labels.length >= dauParsed.labels.length
             ? dnuParsed.labels : dauParsed.labels;
 
-        var chart = new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: labels,
-                datasets: [
-                    {
-                        label: 'DNU 累加总和',
-                        data: dnuParsed.values,
-                        borderColor: COLORS.totalDnuLine,
-                        backgroundColor: COLORS.totalDnuFill,
-                        borderWidth: 2,
-                        fill: true,
-                        tension: 0.3,
-                        pointRadius: 3,
-                        pointHoverRadius: 5
-                    },
-                    {
-                        label: 'DAU 累加总和',
-                        data: dauParsed.values,
-                        borderColor: COLORS.totalDauLine,
-                        backgroundColor: COLORS.totalDauFill,
-                        borderWidth: 2.5,
-                        fill: true,
-                        tension: 0.3,
-                        pointRadius: 3,
-                        pointHoverRadius: 5
-                    }
-                ]
-            },
-            options: _getCommonOptions()
-        });
+        var datasets = [
+            _buildDataset('DNU 累加总和', dnuParsed.values, COLORS.totalDnuLine, COLORS.totalDnuFill, 2),
+            _buildDataset('DAU 累加总和', dauParsed.values, COLORS.totalDauLine, COLORS.totalDauFill, 2.5)
+        ];
 
-        chartInstances[canvasId] = chart;
+        _renderLineChart(canvasId, datasets, labels);
     }
 
     // ========== 公开 API ==========
